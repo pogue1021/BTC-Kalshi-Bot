@@ -542,7 +542,7 @@ class KalshiClient:
         response: dict,
         *,
         context: str,
-        grace_secs: float = 2.0,
+        grace_secs: float = 8.0,
         poll_interval: float = 0.5,
     ) -> dict:
         """
