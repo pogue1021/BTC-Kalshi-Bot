@@ -1,0 +1,17 @@
+# Kalshi BTC Trading Bot — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# WebSocket connections (Binance + Coinbase price feeds)
+websockets>=12.0
+
+# HTTP requests (Kalshi REST API)
+requests>=2.31.0
+
+# RSA cryptography for Kalshi request signing
+cryptography>=42.0.0
+
+# YAML config file parsing
+PyYAML>=6.0.1
+
+# Load credentials from .env file
+python-dotenv>=1.0.0

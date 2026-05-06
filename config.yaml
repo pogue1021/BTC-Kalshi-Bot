@@ -1,0 +1,185 @@
+# ============================================================
+# Kalshi BTC Trading Bot - Configuration
+# ============================================================
+# Start here! Fill in your API keys before running the bot.
+# Leave paper_mode: true until you're ready to trade real money.
+
+# ----------------------------------------------------------
+# KALSHI API SETTINGS
+# ----------------------------------------------------------
+kalshi:
+  api_key_id: ""           # loaded from .env → KALSHI_API_KEY_ID
+  private_key_path: ""    # loaded from .env → KALSHI_PRIVATE_KEY_PATH
+  use_demo: false                            # true = demo account, false = live account
+  # Demo base URL: https://demo-api.kalshi.co/trade-api/v2
+  # Live base URL: https://api.elections.kalshi.com/trade-api/v2
+
+  # Spread-crossing buffer (cents) — bid 1c above ask on buys, accept 1c below
+  # bid on sells. Locks in fills when prices tick between read and place.
+  # Worst-case slippage is this many cents per contract (~$0.13 on 13 contracts).
+  # 0 = no crossing (more cancels, fewer trades, no slip cost)
+  # 1 = recommended default (most fills go through, ~1c worst-case slip)
+  # 2 = aggressive (catches faster moves, ~2c worst-case slip)
+  cross_spread_buffer_cents: 1
+
+# ----------------------------------------------------------
+# SAFETY SETTINGS - Read before changing anything!
+# ----------------------------------------------------------
+trading:
+  paper_mode: true          # true = simulate trades only, false = place real orders
+  max_bet_dollars: 10  # Maximum dollars to risk on a single trade (e.g. 10 = $10)
+  max_daily_loss: 75        # Bot will STOP trading if it loses this much in a day ($)
+  min_daily_profit_lock: 0  # Optional: stop trading after this much profit to lock in gains
+
+# ----------------------------------------------------------
+# WHICH MARKETS TO TRADE
+# ----------------------------------------------------------
+markets:
+  series_ticker: "KXBTC15M"   # Kalshi's 15-min Bitcoin series ticker
+  interval_minutes: 15      # We're targeting the 15-minute markets
+  # The bot will automatically find the currently active 15-min BTC market
+
+# ----------------------------------------------------------
+# SIGNAL SETTINGS - When to place a bet
+# ----------------------------------------------------------
+logging:
+  log_level: INFO
+  log_file: bot_trades.log
+  print_prices: true
+
+signal:
+  # CF estimate momentum strategy:
+  # When the CF Benchmarks real-time estimate (weighted median of Coinbase/Kraken/Bitstamp/Gemini)
+  # is trending strongly, bet that Kalshi's market will follow.
+  momentum_threshold_pct: 0.045  # Minimum CF momentum % to trigger a bet (0.025 = 0.025%)
+                                    # Lower = more signals but noisier; higher = fewer but cleaner
+                                    # Sweet spot between 0.02 (noisy) and 0.03 (slow)
+  momentum_window_seconds: 15  # Look at CF price change over this many seconds (30s = cleaner signal)
+
+  divergence_threshold_pct: 0.08  # Legacy field — kept for dashboard slider compatibility
+
+  # When during the 15-min window to place bets (counting from market close)
+  # Two independent sliders on the dashboard control these. Early-entry phase
+  # fires in the GAP between trade_window_start_minutes and early_entry_window_minutes
+  # (where stricter criteria apply). Regular criteria fire from
+  # trade_window_start_minutes down to trade_window_end_minutes.
+  # If start == early_entry_window, the early phase has zero width and never fires.
+  trade_window_start_minutes: 5  # Regular trading criteria kick in here
+  trade_window_end_minutes: 0.5  # Stop entering this many minutes before close
+                                    # 1.5min gives positions time to play out (median time-in-trade is ~2min)
+
+  # Market price filter - avoid markets that are almost certainly going one way
+  min_yes_price_cents: 40  # Don't bet if market prices YES below 40c (long shots lose consistently)
+  max_yes_price_cents: 80  # Don't bet if market is pricing YES above 80 cents
+
+  # Stop-loss, take-profit, and re-entry
+  stop_loss_cents: 16  # Legacy price-based stop (kept for backward compat; used when signal_stop_enabled=false)
+  take_profit_cents: 99  # Bank the gain early when position reaches this price (85-99c)
+  sl_min_hold_secs: 90  # Stop-loss can't fire within this many seconds of entry (prevents noise exits)
+  sl_disable_mins: 3.0              # LEGACY: original single SL disable timer — kept as fallback default for signal_sl_disable_mins
+
+  # Split SL gates — soft (signal/legacy) vs hard (price-collapse failsafe).
+  #   - Soft gates handle ambiguous reversals where Kalshi spread/noise can
+  #     cause panic exits in the closing minutes; we silence them late.
+  #   - Hard gate triggers only on a real catastrophic move (loss ≥ stop_loss_fallback_cents).
+  #     We keep this armed almost to the bell so a position can't ride from 58c → 0c untouched.
+  signal_sl_disable_mins: 3.0       # Soft SL (signal-based + legacy) disabled in final N min — avoid noisy exits
+  price_sl_disable_mins:  0.5       # Hard SL (price-collapse failsafe) disabled in final N min — almost always armed
+  max_trades_per_cycle: 1  # Max times the bot can trade within one 15-min market
+
+  # Signal-based stop-loss (smarter than pure price-based)
+  # Exits only when the CF estimate has crossed to the wrong side of the strike
+  # against our position for `signal_stop_persistence_secs`. A widened price-based
+  # failsafe (`stop_loss_fallback_cents`) still catches catastrophic moves.
+  signal_stop_enabled: true         # Master toggle for signal-based stop
+  signal_stop_persistence_secs: 15  # CF must stay on wrong side this long before exit
+  stop_loss_fallback_cents: 25      # Hard price failsafe — always exits if loss hits this
+
+  # Early entry (6–12 min before close)
+  # Bot can enter before the normal window ONLY when the signal is overwhelming:
+  #   - CF estimate is very far from target (market hasn't fully repriced)
+  #   - Kalshi YES price is still reasonable (not already at 90c)
+  #   - Momentum is confirming the direction
+  early_entry_window_minutes: 7  # How far out to watch for early opportunities
+  early_min_distance_pct: 0.09  # CF must be >= this % from target to enter early (~$46 on $76k BTC)
+  early_max_yes_cents: 70  # Skip early entry if YES already above this (market caught up)
+
+  # ──────────────────────────────────────────────────────────
+  # Wrong-side entry guard
+  # ──────────────────────────────────────────────────────────
+  # When CF is "near" the strike (within ~$22) the bot can fire a momentum
+  # entry. If the chosen side ends up putting CF on the WRONG side of the
+  # strike (e.g. buying YES while CF is BELOW strike, hoping momentum
+  # carries it across), this caps how far over the line we'll allow it.
+  # Beyond this distance, the bot will HOLD instead of taking the bet.
+  # 0.025% ≈ $19 on $76k BTC — research-grounded at ~0.5 sigma over 2min in
+  # calm BTC regime. Lower = stricter (will block more "near target" momentum
+  # entries when CF is on the wrong side); set to 0 to refuse all wrong-side
+  # entries entirely. Was 0.015% (≈ $11), but that turned out to be inside
+  # typical noise — 0.025% blocks egregious wrong-side bets while still
+  # allowing momentum entries that have a fighting chance.
+  max_wrong_side_distance_pct: 0.025  # ──────────────────────────────────────────────────────────
+  # Confidence threshold & whipsaw protection
+  # ──────────────────────────────────────────────────────────
+  # Min confidence score (0–1) before a YES/NO signal places a trade.
+  # Confidence reflects momentum strength, CF distance, and feed count.
+  # 0.50 = permissive (most trades pass), 0.65 = momentum confirmation required.
+  min_confidence_pct: 0.55  # After a stop-loss exit within a cycle, wait this many seconds before
+  # re-entering the same market. Prevents rapid whipsaw losses.
+  # 0 = disabled (immediate re-entry, old behavior).
+  sl_cooldown_secs: 90  # ──────────────────────────────────────────────────────────
+  # Late-window fallback (Option B)
+  # ──────────────────────────────────────────────────────────
+  # If no trade has fired by the final few minutes AND the CF estimate is
+  # clearly on one side of the strike (edge still exists), take that side
+  # without requiring momentum confirmation. This captures cycles where the
+  # market is slow to price in an obvious outcome.
+  # To DISABLE and revert to prior behavior: set late_window_fallback_enabled: false
+  late_window_fallback_enabled:  true
+  late_window_fallback_minutes:  3.0   # Fires only in final N minutes before close
+  late_window_min_distance_pct: 0.04  # CF must be >= this % from strike (~$38 on $76k BTC)
+  late_window_max_yes_cents: 75  # Skip if YES already priced in this high
+
+# ----------------------------------------------------------
+# REMOTE KILL SWITCH (optional, opt-in)
+# ----------------------------------------------------------
+# Lets you shut the bot down from your phone by texting "STOP" to a
+# private Telegram bot you create. Leave bot_token blank to disable
+# this feature — the rest of the bot runs exactly as before.
+#
+# One-time setup:
+#   1. Telegram → talk to @BotFather → /newbot → save the token
+#   2. Open your new bot, send any message ("hi" works)
+#   3. Visit https://api.telegram.org/bot<TOKEN>/getUpdates and copy
+#      the numeric chat id from "chat":{"id": <NUMBER>}
+#   4. Paste both below and restart the bot.
+#
+# After it's running, text STOP to your bot from your phone to kill
+# the Python process. Manually relaunch when you're back at your PC.
+telegram:
+  bot_token: ""            # loaded from .env → TELEGRAM_BOT_TOKEN
+  chat_id:   0             # loaded from .env → TELEGRAM_CHAT_ID
+
+# ----------------------------------------------------------
+# KALSHI P&L RECONCILIATION (background)
+# ----------------------------------------------------------
+# Periodically pulls today's fills + settlements from Kalshi and updates
+# the dashboard's DAILY P&L to match Kalshi truth (instead of the bot's
+# locally-computed value). Runs in a daemon thread — never affects the
+# trading loop or order placement timing.
+#
+# Scope: only counts fills/settlements whose ticker matches markets.series_ticker
+# (e.g. KXBTC15M*) — so manual trades on OTHER Kalshi markets (NFL, politics,
+# BTC hourly, etc.) are NOT included in the bot's reported P&L.
+#
+# What's preserved: the dashboard's lifetime "Total P&L", win/loss counts,
+# and win rate are NEVER touched by the reconciler. Only today's daily P&L
+# gets snapped to Kalshi truth every interval. Your trade history is intact.
+#
+# Why: local P&L drifts from Kalshi truth because of trading fees, partial
+# fills, and settlement-payout edge cases. The reconciler closes that gap
+# every interval_minutes.
+reconcile:
+  enabled:           true
+  interval_minutes:  5      # how often to check Kalshi
+  warn_threshold:    1.0    # log a WARNING when local vs Kalshi differ by ≥ $X

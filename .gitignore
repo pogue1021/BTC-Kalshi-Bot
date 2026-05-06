@@ -1,0 +1,60 @@
+# ============================================================
+# SENSITIVE — never commit these
+# ============================================================
+
+# Kalshi API credentials
+.env
+*.pem
+kalshi_private_key.pem
+
+# Trade history and logs (personal financial data)
+trades_history.json
+bot_trades.log
+backtest_results.json
+
+# Paper mode flag file
+paper_mode
+stop_loss_cents
+
+# ============================================================
+# PYTHON
+# ============================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+pip/
+python/
+pythonnet/
+
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+.env.local
+.env.*.local
+venv/
+.venv/
+env/
+
+# ============================================================
+# OS / EDITOR
+# ============================================================
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+*.swp
+*.swo
+
+# ============================================================
+# BACKUPS (keep locally, not in git)
+# ============================================================
+backup_*/
+*_backup*
+dashboard_original.html
+dashboard_v2_backup.html
+kalshibot.txt
