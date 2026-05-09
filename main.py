@@ -535,14 +535,20 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                         f"now {sell_price}c — {reason} — exiting"
                     )
                     try:
+                        # On a hard price-collapse, drop 10c below the bid to
+                        # guarantee a fill — bleeding 10c more is better than
+                        # failing to exit while the market keeps falling.
+                        exit_price = (
+                            max(1, sell_price - 10) if hard_collapse_fires else sell_price
+                        )
                         kalshi_client.sell_position(
                             ticker        = ticker,
                             side          = current_trade.side,
-                            price_cents   = sell_price,
+                            price_cents   = exit_price,
                             num_contracts = current_trade.num_contracts,
                             paper_mode    = state.paper_mode,
                         )
-                        exited = risk_manager.record_trade_early_exit(current_trade, sell_price)
+                        exited = risk_manager.record_trade_early_exit(current_trade, exit_price)
                         state.update_trade(
                             trade_id  = current_trade.trade_id,
                             pnl       = exited.pnl_dollars,

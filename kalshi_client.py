@@ -520,12 +520,13 @@ class KalshiClient:
             logger.error(f"Exit order failed: {e.response.status_code} — {e.response.text}")
             raise
 
-        # Verify the exit actually filled. Same grace-period logic as on the
-        # buy side. If still unfilled after the grace, cancel and raise — the
-        # caller (main.py) keeps current_trade open and retries on next tick.
+        # Exits need a short grace window — in a falling market, waiting 8s
+        # means the fill price gets much worse. 3s is enough to catch a
+        # momentary matching-engine lag without bleeding on the way down.
         return self._verify_fill_or_cancel(
             response,
             context=f"sell {side.upper()} {num_contracts}x @ {price_cents}c on {ticker}",
+            grace_secs=3.0,
         )
 
     def cancel_order(self, order_id: str) -> dict:
@@ -630,7 +631,27 @@ class KalshiClient:
                         )
                         response["order"] = confirmed
                         return response
-                    # Order still exists but isn't filled — fall through to error.
+                    # Order still 'resting' after cancel-404 — the cancel may have
+                    # arrived while Kalshi was matching it. Wait 2 more seconds
+                    # and check one final time before giving up.
+                    if confirmed_status == "resting":
+                        logger.warning(
+                            f"Order {order_id} cancel got 404 but still resting — "
+                            f"waiting 2s for match to confirm ({context})"
+                        )
+                        time.sleep(2)
+                        try:
+                            final = self.get_order(order_id)
+                            final_status = (final.get("status") or "").lower()
+                            if final_status in FILLED:
+                                logger.info(
+                                    f"Order {order_id} confirmed executed on final check "
+                                    f"({context}) — recording as filled."
+                                )
+                                response["order"] = final
+                                return response
+                        except Exception:
+                            pass  # fall through to OrderNotFilledError
                     logger.warning(
                         f"Order {order_id} cancel got 404 but order status is "
                         f"{confirmed_status!r} — not treating as filled ({context})"

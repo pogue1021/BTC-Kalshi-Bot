@@ -34,7 +34,6 @@ _SETTINGS_TO_CONFIG = {
     "late_window_fallback_minutes":("signal", "late_window_fallback_minutes"),
     "late_window_min_distance_pct":("signal", "late_window_min_distance_pct"),
     "late_window_max_yes_cents":   ("signal", "late_window_max_yes_cents"),
-    "divergence_threshold_pct":    ("signal", "divergence_threshold_pct"),
     "momentum_threshold_pct":      ("signal", "momentum_threshold_pct"),
     "momentum_window_secs":        ("signal", "momentum_window_seconds"),
     "min_yes_price_cents":         ("signal", "min_yes_price_cents"),

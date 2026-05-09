@@ -91,9 +91,6 @@ class SignalEngine:
         # too wide for a 30s momentum push to plausibly close.
         # 0.015% ≈ $11 on $76k BTC. Set to 0 to require CF on the favorable side.
         state.settings.max_wrong_side_distance_pct   = float(signal_cfg.get("max_wrong_side_distance_pct", 0.015))
-        # divergence_threshold_pct is repurposed as a secondary momentum threshold
-        # (kept in LiveSettings so the dashboard slider still works)
-        state.settings.divergence_threshold_pct   = signal_cfg.get("divergence_threshold_pct", 0.08)
         state.settings.min_confidence_pct         = float(signal_cfg.get("min_confidence_pct", 0.50))
         state.settings.sl_cooldown_secs           = int(signal_cfg.get("sl_cooldown_secs", 60))
 

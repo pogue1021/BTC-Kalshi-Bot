@@ -22,7 +22,6 @@ class LiveSettings:
     trade_window_end_minutes:   float = 1.5   # Stop looking this many minutes before close
 
     # Signal sensitivity
-    divergence_threshold_pct: float = 0.08    # Min % gap between Binance and Coinbase
     momentum_threshold_pct:   float = 0.05    # Min % Binance price move over window
     momentum_window_secs:     int   = 30      # How many seconds back to measure momentum
 
@@ -81,7 +80,6 @@ class LiveSettings:
         return {
             "trade_window_start_minutes": self.trade_window_start_minutes,
             "trade_window_end_minutes":   self.trade_window_end_minutes,
-            "divergence_threshold_pct":   self.divergence_threshold_pct,
             "momentum_threshold_pct":     self.momentum_threshold_pct,
             "momentum_window_secs":       self.momentum_window_secs,
             "min_yes_price_cents":        self.min_yes_price_cents,
@@ -114,8 +112,6 @@ class LiveSettings:
             self.trade_window_start_minutes = float(d["trade_window_start_minutes"])
         if "trade_window_end_minutes" in d:
             self.trade_window_end_minutes = float(d["trade_window_end_minutes"])
-        if "divergence_threshold_pct" in d:
-            self.divergence_threshold_pct = float(d["divergence_threshold_pct"])
         if "momentum_threshold_pct" in d:
             self.momentum_threshold_pct = float(d["momentum_threshold_pct"])
         if "momentum_window_secs" in d:

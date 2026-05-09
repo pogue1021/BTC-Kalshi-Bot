@@ -9,16 +9,25 @@ Run from the bot folder:
     python backtester.py
 
 No changes are made to the live bot. Output is a performance report only.
+
+v2 improvements:
+  - Data cached once per market — all parameter variations reuse cached data
+    (runtime ~12 min instead of ~2.5 hrs)
+  - Tests 4 variables: momentum_threshold, momentum_window, early_distance, late_distance
+  - Detailed skip-reason breakdown shows why trades don't trigger
+  - Top-10 leaderboard + win rate by entry window for best result
 """
 
 import os
 import sys
+import json
 import time
 import yaml
 import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
+from itertools import product
 
 import requests
 from dotenv import load_dotenv
@@ -54,7 +63,7 @@ def fetch_settled_markets(client, days: int = 30) -> list:
     Pull settled KXBTC15M markets from the last N days.
     Returns a list of dicts with ticker, floor_strike, close_time, result.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff  = datetime.now(timezone.utc) - timedelta(days=days)
     markets = []
     cursor  = None
 
@@ -89,21 +98,19 @@ def fetch_settled_markets(client, days: int = 30) -> list:
                 continue
 
             if close_dt < cutoff:
-                # Markets are returned newest-first; once we hit old ones we're done
                 print(f" done. ({len(markets)} markets)")
                 return markets
 
-            # Extract strike price
             strike = m.get("floor_strike") or m.get("cap_strike")
             if strike is None:
                 subtitle = m.get("subtitle", "") or m.get("title", "")
-                match = re.search(r'\$([0-9,]+\.?\d*)', subtitle)
+                match    = re.search(r'\$([0-9,]+\.?\d*)', subtitle)
                 if match:
                     strike = float(match.group(1).replace(",", ""))
             if strike is None:
                 continue
 
-            result = m.get("result", "")  # "yes" or "no"
+            result = m.get("result", "")
             if result not in ("yes", "no"):
                 continue
 
@@ -117,7 +124,7 @@ def fetch_settled_markets(client, days: int = 30) -> list:
         cursor = data.get("cursor")
         if not cursor:
             break
-        time.sleep(0.2)  # be polite to the API
+        time.sleep(0.2)
 
     print(f" done. ({len(markets)} markets)")
     return markets
@@ -152,50 +159,114 @@ def fetch_market_yes_prices(client, ticker: str) -> list:
 
 
 # ─────────────────────────────────────────────────────────────
-# KRAKEN PRICE FETCHING
+# BTC PRICE FETCHING  (Coinbase Exchange — public, no auth needed)
 # ─────────────────────────────────────────────────────────────
+#
+# WHY NOT KRAKEN?  Kraken's free 1-minute OHLC endpoint only keeps
+# ~720 candles (~12 hours).  Markets older than that return empty
+# data, which wrecks a 30-day backtest (79% of markets get skipped).
+#
+# Coinbase Exchange public candle API has years of 1-min history,
+# requires no authentication, and is fully accessible from the US.
+# Format: [[timestamp, low, high, open, close, volume], ...]
 
-def fetch_kraken_1min_candles(close_time: datetime, window_minutes: int = 20) -> list:
+COINBASE_CANDLES_URL = "https://api.exchange.coinbase.com/products/BTC-USD/candles"
+
+
+def fetch_btc_1min_candles(close_time: datetime, window_minutes: int = 25) -> list:
     """
-    Fetch 1-minute BTC/USD OHLC candles from Kraken covering the market window.
+    Fetch 1-minute BTC/USD OHLC candles from Coinbase Exchange.
     Returns list of dicts: {time, open, high, low, close}
+
+    We fetch a wider window (25 min default) so momentum calculations
+    that look back further than the trade window still have price data.
+    Coinbase returns up to 300 candles per request; 25 min = 25 candles, fine.
     """
-    since_ts = int((close_time - timedelta(minutes=window_minutes)).timestamp())
+    start_time = close_time - timedelta(minutes=window_minutes)
+    # Coinbase expects ISO 8601 strings
+    start_iso  = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso    = close_time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     try:
         resp = requests.get(
-            "https://api.kraken.com/0/public/OHLC",
-            params={"pair": "XBTUSD", "interval": 1, "since": since_ts},
+            COINBASE_CANDLES_URL,
+            params={"granularity": 60, "start": start_iso, "end": end_iso},
+            headers={"Accept": "application/json"},
             timeout=10,
         )
         resp.raise_for_status()
-        data = resp.json()
+        raw = resp.json()
 
-        if data.get("error"):
+        if not isinstance(raw, list) or not raw:
             return []
 
-        result_data = data.get("result", {})
-        pair_key    = next((k for k in result_data if k != "last"), None)
-        if not pair_key:
-            return []
-
+        # Coinbase returns newest-first: [timestamp, low, high, open, close, volume]
         candles = []
-        for c in result_data[pair_key]:
-            # [time, open, high, low, close, vwap, volume, count]
+        for c in raw:
             candle_time = datetime.fromtimestamp(c[0], tz=timezone.utc)
-            if candle_time < close_time - timedelta(minutes=window_minutes):
-                continue
             candles.append({
                 "time":  candle_time,
-                "open":  float(c[1]),
+                "open":  float(c[3]),
                 "high":  float(c[2]),
-                "low":   float(c[3]),
+                "low":   float(c[1]),
                 "close": float(c[4]),
             })
+
+        # Sort oldest-first so get_price_at() works correctly
+        candles.sort(key=lambda x: x["time"])
         return candles
 
     except Exception:
         return []
+
+
+# Keep old name as alias so nothing else breaks
+fetch_kraken_1min_candles = fetch_btc_1min_candles
+
+
+# ─────────────────────────────────────────────────────────────
+# DATA CACHE — fetch once per market, reuse across all variations
+# ─────────────────────────────────────────────────────────────
+
+def build_market_cache(client, markets: list) -> dict:
+    """
+    Pre-fetch Coinbase candles and YES prices for every market.
+    Returns dict keyed by ticker: {"candles": [...], "yes_prices": [...]}
+
+    This is the key speedup: instead of re-fetching for each parameter combo,
+    we fetch once and all 100+ variations run against the same in-memory data.
+    """
+    cache = {}
+    total = len(markets)
+
+    print(f"\n  Pre-fetching price data for {total} markets (Coinbase Exchange)...")
+    print(f"  (This is the only slow part — all parameter variations will reuse this data)")
+    print(f"  ", end="", flush=True)
+
+    for i, market in enumerate(markets):
+        ticker = market["ticker"]
+
+        if (i + 1) % 50 == 0:
+            pct = (i + 1) / total * 100
+            print(f"{i+1}/{total} ({pct:.0f}%)... ", end="", flush=True)
+
+        # Fetch Coinbase candles — 25 min window to cover all momentum lookbacks
+        candles = fetch_btc_1min_candles(market["close_time"], window_minutes=25)
+        time.sleep(0.15)  # ~6 req/sec — Coinbase public API allows 10/sec, be conservative
+
+        # Fetch YES prices — best effort
+        yes_prices = []
+        if ticker:
+            yes_prices = fetch_market_yes_prices(client, ticker)
+            time.sleep(0.08)
+
+        cache[ticker] = {
+            "candles":    candles,
+            "yes_prices": yes_prices,
+        }
+
+    print(f"\n  Data cache built. ({total} markets, {sum(len(v['candles']) for v in cache.values())} total candles)")
+    return cache
 
 
 # ─────────────────────────────────────────────────────────────
@@ -224,64 +295,82 @@ def get_yes_price_at(yes_prices: list, target_time: datetime) -> Optional[int]:
     return best
 
 
+# Skip reason codes — used for breakdown reporting
+SKIP_NO_DATA       = "no_price_data"
+SKIP_NO_MOMENTUM   = "no_momentum"
+SKIP_DIST_TOO_SMAL = "distance_too_small"
+SKIP_PRICE_RANGE   = "yes_price_out_of_range"
+SKIP_LATE_PRICE    = "late_price_filter"
+SKIP_NO_SIGNAL     = "no_signal"
+
+
 def simulate_market(market: dict, candles: list, yes_prices: list, settings: dict) -> dict:
     """
     Replay bot signal logic against one historical market.
 
     Returns a dict:
-        entered      : bool — did the sim enter a trade?
-        side         : "yes" or "no" or None
+        entered      : bool
+        side         : "yes" / "no" / None
         entry_time   : datetime or None
-        mins_before  : float — minutes before close at entry
+        mins_before  : float
+        yes_price    : int or None
+        distance_pct : float
+        momentum_pct : float
         won          : bool or None
-        reason       : str — why it entered or why it held
+        reason       : entry window type (early/regular/late) or skip code
+        skip_reasons : dict counting each skip type encountered during scan
     """
     if not candles:
-        return {"entered": False, "reason": "no_price_data"}
+        return {"entered": False, "reason": SKIP_NO_DATA, "skip_reasons": {SKIP_NO_DATA: 1}}
 
-    close_time  = market["close_time"]
-    strike      = market["strike"]
-    result      = market["result"]  # "yes" or "no"
+    close_time = market["close_time"]
+    strike     = market["strike"]
+    result     = market["result"]
 
-    # Settings
-    mom_threshold     = settings["momentum_threshold_pct"] / 100      # convert % to fraction
-    mom_window_secs   = settings["momentum_window_secs"]
-    min_yes           = settings["min_yes_price_cents"]
-    max_yes           = settings["max_yes_price_cents"]
-    early_win_mins    = settings["early_entry_window_minutes"]
-    early_dist        = settings["early_min_distance_pct"] / 100
-    tw_start_mins     = settings["trade_window_start_minutes"]
-    tw_end_mins       = settings["trade_window_end_minutes"]
-    late_mins         = settings["late_window_fallback_minutes"]
-    late_dist         = settings["late_window_min_distance_pct"] / 100
-    late_max_yes      = settings["late_window_max_yes_cents"]
+    # Unpack settings
+    mom_threshold  = settings["momentum_threshold_pct"] / 100
+    mom_window_secs= settings["momentum_window_secs"]
+    min_yes        = settings["min_yes_price_cents"]
+    max_yes        = settings["max_yes_price_cents"]
+    early_win_mins = settings["early_entry_window_minutes"]
+    early_dist     = settings["early_min_distance_pct"] / 100
+    tw_start_mins  = settings["trade_window_start_minutes"]
+    tw_end_mins    = settings["trade_window_end_minutes"]
+    late_mins      = settings["late_window_fallback_minutes"]
+    late_dist      = settings["late_window_min_distance_pct"] / 100
+    late_max_yes   = settings["late_window_max_yes_cents"]
 
-    # Walk through each minute of the trading window (earliest first)
-    # Check from early_win_mins before close down to tw_end_mins before close
+    # Track why each minute-slot was skipped (for debugging/reporting)
+    skip_counts = {
+        SKIP_NO_MOMENTUM:   0,
+        SKIP_DIST_TOO_SMAL: 0,
+        SKIP_PRICE_RANGE:   0,
+        SKIP_LATE_PRICE:    0,
+    }
+
+    # Walk from earliest possible entry to latest, check each 0.1-min step
     for check_mins_before in [m / 10 for m in range(
         int(early_win_mins * 10), int(tw_end_mins * 10) - 1, -1
     )]:
         check_time = close_time - timedelta(minutes=check_mins_before)
         if check_time > datetime.now(timezone.utc):
-            continue  # skip future candles
+            continue
 
         btc_price = get_price_at(candles, check_time)
         if btc_price is None:
             continue
 
-        # CF estimate ≈ BTC price (Kraken is a CF constituent)
-        distance_pct = (btc_price - strike) / strike  # positive = above, negative = below
+        distance_pct = (btc_price - strike) / strike
 
-        # Momentum: price change over momentum window
+        # Momentum
         past_time  = check_time - timedelta(seconds=mom_window_secs)
         past_price = get_price_at(candles, past_time)
         if past_price is None or past_price == 0:
             continue
-        momentum_pct = (btc_price - past_price) / past_price  # signed fraction
+        momentum_pct = (btc_price - past_price) / past_price
 
-        # YES price at this moment
+        # YES price (live trade data or estimated from distance)
         yes_price = get_yes_price_at(yes_prices, check_time)
-        # If no historical trade data, estimate from distance
         if yes_price is None:
             if abs(distance_pct) < 0.001:
                 yes_price = 50
@@ -290,11 +379,10 @@ def simulate_market(market: dict, candles: list, yes_prices: list, settings: dic
             else:
                 yes_price = max(5, int(50 + distance_pct * 10000))
 
-        # YES price bounds check
         if not (min_yes <= yes_price <= max_yes):
+            skip_counts[SKIP_PRICE_RANGE] += 1
             continue
 
-        # Determine window type
         in_early_window   = check_mins_before > tw_start_mins
         in_regular_window = tw_end_mins <= check_mins_before <= tw_start_mins
         in_late_window    = check_mins_before <= late_mins
@@ -302,179 +390,262 @@ def simulate_market(market: dict, candles: list, yes_prices: list, settings: dic
         side = None
 
         if in_late_window:
-            # Late window fallback: take clearly-edged trade without momentum
-            if abs(distance_pct) >= late_dist and yes_price <= late_max_yes:
-                side = "yes" if distance_pct > 0 else "no"
+            if abs(distance_pct) >= late_dist:
+                if yes_price <= late_max_yes:
+                    side = "yes" if distance_pct > 0 else "no"
+                else:
+                    skip_counts[SKIP_LATE_PRICE] += 1
+            else:
+                skip_counts[SKIP_DIST_TOO_SMAL] += 1
 
         elif in_early_window:
-            # Early entry: need strong distance AND momentum confirming
             if abs(distance_pct) >= early_dist:
-                mom_confirms = (distance_pct > 0 and momentum_pct >= mom_threshold) or \
-                               (distance_pct < 0 and momentum_pct <= -mom_threshold)
+                mom_confirms = (
+                    (distance_pct > 0 and momentum_pct >= mom_threshold) or
+                    (distance_pct < 0 and momentum_pct <= -mom_threshold)
+                )
                 if mom_confirms:
                     side = "yes" if distance_pct > 0 else "no"
+                else:
+                    skip_counts[SKIP_NO_MOMENTUM] += 1
+            else:
+                skip_counts[SKIP_DIST_TOO_SMAL] += 1
 
         elif in_regular_window:
-            # Regular window: distance + momentum
-            mom_confirms = (distance_pct > 0 and momentum_pct >= mom_threshold) or \
-                           (distance_pct < 0 and momentum_pct <= -mom_threshold)
+            mom_confirms = (
+                (distance_pct > 0 and momentum_pct >= mom_threshold) or
+                (distance_pct < 0 and momentum_pct <= -mom_threshold)
+            )
             if mom_confirms:
                 side = "yes" if distance_pct > 0 else "no"
+            else:
+                skip_counts[SKIP_NO_MOMENTUM] += 1
 
         if side is not None:
-            won = (side == result)
+            window_type = (
+                "early"   if in_early_window else
+                "late"    if in_late_window  else
+                "regular"
+            )
             return {
-                "entered":     True,
-                "side":        side,
-                "entry_time":  check_time,
-                "mins_before": check_mins_before,
-                "yes_price":   yes_price,
+                "entered":      True,
+                "side":         side,
+                "entry_time":   check_time,
+                "mins_before":  check_mins_before,
+                "yes_price":    yes_price,
                 "distance_pct": round(distance_pct * 100, 4),
                 "momentum_pct": round(momentum_pct * 100, 4),
-                "won":         won,
-                "reason":      f"{'early' if in_early_window else 'late' if in_late_window else 'regular'} window",
+                "won":          (side == result),
+                "reason":       window_type,
+                "skip_reasons": skip_counts,
             }
 
-    return {"entered": False, "reason": "no_signal"}
+    return {"entered": False, "reason": SKIP_NO_SIGNAL, "skip_reasons": skip_counts}
 
 
 # ─────────────────────────────────────────────────────────────
-# BACKTEST RUNNER
+# BACKTEST RUNNER  (uses pre-built cache — no API calls here)
 # ─────────────────────────────────────────────────────────────
 
-def run_backtest(client, markets: list, settings: dict, label: str = "Current settings") -> dict:
+def run_backtest_cached(markets: list, cache: dict, settings: dict, label: str) -> dict:
     """
-    Run the backtest over all markets with the given settings.
-    Returns a performance summary dict.
+    Run backtest over all markets using cached price data.
+    No API calls — runs in seconds per variation.
     """
-    trades     = []
-    no_signal  = 0
-    no_data    = 0
-    max_bet    = settings.get("max_bet_dollars", 10.0)
+    trades    = []
+    no_signal = 0
+    no_data   = 0
+    max_bet   = settings.get("max_bet_dollars", 10.0)
 
-    print(f"\n  Running: {label}")
-    print(f"  Testing {len(markets)} markets...", end="", flush=True)
+    # Aggregate skip reasons across all markets
+    total_skips = {
+        SKIP_NO_MOMENTUM:   0,
+        SKIP_DIST_TOO_SMAL: 0,
+        SKIP_PRICE_RANGE:   0,
+        SKIP_LATE_PRICE:    0,
+    }
 
-    for i, market in enumerate(markets):
-        if (i + 1) % 20 == 0:
-            print(f" {i+1}...", end="", flush=True)
-
-        # Fetch Kraken candles for this market's window
-        candles = fetch_kraken_1min_candles(market["close_time"], window_minutes=20)
-        time.sleep(0.15)  # avoid rate limiting Kraken
-
-        # Try to fetch historical YES prices (best effort)
-        yes_prices = []
-        if market.get("ticker"):
-            yes_prices = fetch_market_yes_prices(client, market["ticker"])
-            time.sleep(0.1)
+    for market in markets:
+        ticker     = market["ticker"]
+        cached     = cache.get(ticker, {})
+        candles    = cached.get("candles", [])
+        yes_prices = cached.get("yes_prices", [])
 
         result = simulate_market(market, candles, yes_prices, settings)
 
+        # Accumulate skip reasons
+        for k, v in result.get("skip_reasons", {}).items():
+            if k in total_skips:
+                total_skips[k] += v
+
         if not result["entered"]:
-            if result["reason"] == "no_price_data":
+            if result["reason"] == SKIP_NO_DATA:
                 no_data += 1
             else:
                 no_signal += 1
             continue
 
-        # Simple P&L model: buy at yes_price, resolve at 100c (win) or 0c (loss)
         yes_price_cents = result.get("yes_price", 50)
         contracts       = max(1, int((max_bet * 100) / yes_price_cents))
         cost            = contracts * yes_price_cents / 100
         if result["won"]:
-            pnl = contracts * (100 - yes_price_cents) / 100  # profit
+            pnl = contracts * (100 - yes_price_cents) / 100
         else:
-            pnl = -cost  # full loss
+            pnl = -cost
 
         trades.append({
             **result,
-            "ticker":   market["ticker"],
-            "strike":   market["strike"],
+            "ticker":    market["ticker"],
+            "strike":    market["strike"],
             "contracts": contracts,
-            "cost":     round(cost, 2),
-            "pnl":      round(pnl, 2),
+            "cost":      round(cost, 2),
+            "pnl":       round(pnl, 2),
         })
-
-    print(" done.")
 
     if not trades:
         return {
-            "label":      label,
-            "settings":   settings,
-            "trades":     0,
-            "wins":       0,
-            "losses":     0,
-            "win_rate":   0,
-            "total_pnl":  0,
-            "no_signal":  no_signal,
-            "no_data":    no_data,
+            "label":       label,
+            "settings":    settings,
+            "trades":      0,
+            "wins":        0,
+            "losses":      0,
+            "win_rate":    0.0,
+            "total_pnl":   0.0,
+            "no_signal":   no_signal,
+            "no_data":     no_data,
+            "skip_detail": total_skips,
         }
 
-    wins       = sum(1 for t in trades if t["won"])
-    losses     = len(trades) - wins
-    total_pnl  = sum(t["pnl"] for t in trades)
-    win_rate   = wins / len(trades) * 100
+    wins      = sum(1 for t in trades if t["won"])
+    losses    = len(trades) - wins
+    total_pnl = sum(t["pnl"] for t in trades)
+    win_rate  = wins / len(trades) * 100
 
     return {
-        "label":     label,
-        "settings":  settings,
-        "trades":    len(trades),
-        "wins":      wins,
-        "losses":    losses,
-        "win_rate":  round(win_rate, 1),
-        "total_pnl": round(total_pnl, 2),
-        "no_signal": no_signal,
-        "no_data":   no_data,
-        "trade_log": trades,
+        "label":       label,
+        "settings":    settings,
+        "trades":      len(trades),
+        "wins":        wins,
+        "losses":      losses,
+        "win_rate":    round(win_rate, 1),
+        "total_pnl":   round(total_pnl, 2),
+        "no_signal":   no_signal,
+        "no_data":     no_data,
+        "skip_detail": total_skips,
+        "trade_log":   trades,
     }
 
 
 # ─────────────────────────────────────────────────────────────
-# REPORT PRINTING
+# REPORTING
 # ─────────────────────────────────────────────────────────────
 
-def print_report(results: list):
-    print("\n" + "=" * 65)
-    print("  BACKTEST RESULTS")
-    print("=" * 65)
-    print(f"  {'Settings':<38} {'Trades':>6} {'Win%':>6} {'P&L':>9}")
-    print("-" * 65)
+def print_report(results: list, current_label: str = "Current settings"):
+    """Print ranked leaderboard + detail for the best result."""
 
-    best = max(results, key=lambda r: r["total_pnl"])
+    # Sort by P&L descending
+    ranked = sorted(results, key=lambda r: r["total_pnl"], reverse=True)
 
-    for r in results:
-        marker = " ◀ BEST" if r is best else ""
+    print("\n" + "=" * 72)
+    print("  BACKTEST RESULTS  —  Top 10 by P&L")
+    print("=" * 72)
+    print(f"  {'#':<3}  {'Settings':<42} {'Trades':>6} {'Win%':>6} {'P&L':>10}")
+    print("-" * 72)
+
+    current_result = next((r for r in results if r["label"] == current_label), None)
+
+    for rank, r in enumerate(ranked[:10], 1):
+        marker = ""
+        if r["label"] == current_label:
+            marker = " ◀ CURRENT"
+        elif rank == 1:
+            marker = " ◀ BEST"
         pnl_str = f"${r['total_pnl']:+.2f}"
-        print(f"  {r['label']:<38} {r['trades']:>6} {r['win_rate']:>5.1f}% {pnl_str:>9}{marker}")
+        print(f"  {rank:<3}  {r['label']:<42} {r['trades']:>6} {r['win_rate']:>5.1f}% {pnl_str:>10}{marker}")
 
-    print("=" * 65)
+    # Show where current settings ranks overall
+    if current_result:
+        current_rank = ranked.index(current_result) + 1
+        print(f"\n  Current settings rank: #{current_rank} of {len(results)}")
+
+    print("=" * 72)
 
     # Detail on best performer
-    b = best
-    print(f"\n  Best: {b['label']}")
-    print(f"    Trades:     {b['trades']}  ({b['wins']} wins / {b['losses']} losses)")
-    print(f"    Win rate:   {b['win_rate']}%")
-    print(f"    Total P&L:  ${b['total_pnl']:+.2f}")
-    print(f"    No-signal:  {b['no_signal']} markets skipped")
+    best = ranked[0]
+    print(f"\n  ── Best result: {best['label']}")
+    print(f"     Trades:    {best['trades']}  ({best['wins']} wins / {best['losses']} losses)")
+    print(f"     Win rate:  {best['win_rate']}%")
+    print(f"     Total P&L: ${best['total_pnl']:+.2f}")
+    print(f"     No-signal: {best['no_signal']} markets skipped")
 
-    if b.get("trade_log"):
-        # Breakdown by entry window type
+    # Skip reason breakdown for best
+    sd = best.get("skip_detail", {})
+    total_skipped = best["no_signal"] + best["no_data"]
+    if sd and total_skipped > 0:
+        print(f"\n  Why markets didn't trade (best result):")
+        print(f"    No price data:       {best['no_data']:>5}")
+        print(f"    No momentum signal:  {sd.get(SKIP_NO_MOMENTUM, 0):>5}  (threshold or window too strict)")
+        print(f"    Distance too small:  {sd.get(SKIP_DIST_TOO_SMAL, 0):>5}  (price too close to strike)")
+        print(f"    YES price OOB:       {sd.get(SKIP_PRICE_RANGE, 0):>5}  (outside min/max price filter)")
+        print(f"    Late price filter:   {sd.get(SKIP_LATE_PRICE, 0):>5}  (late window YES price too high)")
+
+    # Win rate by entry window for best
+    if best.get("trade_log"):
         by_window = {}
-        for t in b["trade_log"]:
+        for t in best["trade_log"]:
             w = t.get("reason", "unknown")
             if w not in by_window:
-                by_window[w] = {"wins": 0, "losses": 0, "pnl": 0}
-            by_window[w]["wins"   if t["won"] else "losses"] += 1
+                by_window[w] = {"wins": 0, "losses": 0, "pnl": 0.0}
+            by_window[w]["wins" if t["won"] else "losses"] += 1
             by_window[w]["pnl"] += t["pnl"]
 
-        print(f"\n  Win rate by entry type:")
-        for window, stats in by_window.items():
+        print(f"\n  Win rate by entry type (best result):")
+        for window, stats in sorted(by_window.items()):
             total = stats["wins"] + stats["losses"]
             wr    = stats["wins"] / total * 100 if total else 0
-            print(f"    {window:<20} {stats['wins']}/{total} ({wr:.0f}%)   P&L: ${stats['pnl']:+.2f}")
+            print(f"    {window:<12}  {stats['wins']}/{total} trades  ({wr:.0f}% win)   P&L: ${stats['pnl']:+.2f}")
 
+    # Show best settings in copy-paste format
+    bs = best["settings"]
+    print(f"\n  ── Best settings (copy into config.yaml / dashboard sliders):")
+    print(f"     momentum_threshold_pct:      {bs['momentum_threshold_pct']:.3f}")
+    print(f"     momentum_window_secs:        {bs['momentum_window_secs']}")
+    print(f"     early_min_distance_pct:      {bs['early_min_distance_pct']:.2f}")
+    print(f"     late_window_min_distance_pct:{bs['late_window_min_distance_pct']:.2f}")
     print()
+
+
+# ─────────────────────────────────────────────────────────────
+# PARAMETER GRID
+# ─────────────────────────────────────────────────────────────
+
+def build_parameter_grid(base: dict) -> list:
+    """
+    Build all (label, settings) combinations to test.
+    We vary the four most impactful settings; everything else stays at current.
+
+    Grid: 4 x 3 x 3 x 3 = 108 variations
+    """
+    momentum_thresholds  = [0.015, 0.020, 0.025, 0.030]
+    momentum_windows     = [15, 25, 40]          # seconds
+    early_distances      = [0.05, 0.07, 0.10]    # % from strike for early entry
+    late_distances       = [0.03, 0.04, 0.05]    # % from strike for late fallback
+
+    variations = []
+    for mom, win, edist, ldist in product(
+        momentum_thresholds, momentum_windows, early_distances, late_distances
+    ):
+        label = f"mom={mom:.3f} win={win}s e={edist:.2f} l={ldist:.2f}"
+        s = {
+            **base,
+            "momentum_threshold_pct":       mom,
+            "momentum_window_secs":         win,
+            "early_min_distance_pct":       edist,
+            "late_window_min_distance_pct": ldist,
+        }
+        variations.append((label, s))
+
+    return variations
 
 
 # ─────────────────────────────────────────────────────────────
@@ -482,78 +653,80 @@ def print_report(results: list):
 # ─────────────────────────────────────────────────────────────
 
 def main():
-    print("\n" + "=" * 65)
-    print("  KALSHI BTC 15-MIN STRATEGY BACKTESTER")
-    print("=" * 65)
+    print("\n" + "=" * 72)
+    print("  KALSHI BTC 15-MIN STRATEGY BACKTESTER  v2")
+    print("=" * 72)
 
     config = load_config()
     print("\nConnecting to Kalshi...")
     try:
-        client = make_kalshi_client(config)
+        client  = make_kalshi_client(config)
         balance = client.get_balance()
         print(f"  Connected. Account balance: ${balance:.2f}")
     except Exception as e:
         print(f"  ERROR: Could not connect to Kalshi: {e}")
         sys.exit(1)
 
-    # How many days to look back
+    # ── Fetch historical markets ───────────────────────────────────────
     days = 30
     print(f"\nFetching market history ({days} days)...")
     markets = fetch_settled_markets(client, days=days)
 
     if not markets:
-        print("  No settled markets found. Try reducing the lookback period.")
+        print("  No settled markets found.")
         sys.exit(1)
 
-    print(f"  Found {len(markets)} settled KXBTC15M markets to test against.\n")
+    print(f"  Found {len(markets)} settled KXBTC15M markets.\n")
 
-    # ── Current settings (from config.yaml) ──────────────────
-    sig = config.get("signal", {})
+    # ── Build cache (the slow step — fetch once per market) ────
+    t_start = time.time()
+    cache   = build_market_cache(client, markets)
+    t_fetch = time.time() - t_start
+    print(f"  Cache built in {t_fetch/60:.1f} min.\n")
+
+    # ── Build base settings from config.yaml ──────────────
+    sig     = config.get("signal", {})
     current = {
-        "momentum_threshold_pct":    float(sig.get("momentum_threshold_pct", 0.025)),
-        "momentum_window_secs":      int(sig.get("momentum_window_seconds", 30)),
-        "min_yes_price_cents":       int(sig.get("min_yes_price_cents", 25)),
-        "max_yes_price_cents":       int(sig.get("max_yes_price_cents", 75)),
-        "max_bet_dollars":           float(config.get("trading", {}).get("max_bet_dollars", 10)),
-        "early_entry_window_minutes":float(sig.get("early_entry_window_minutes", 10)),
-        "early_min_distance_pct":    float(sig.get("early_min_distance_pct", 0.08)),
-        "trade_window_start_minutes":float(sig.get("trade_window_start_minutes", 5)),
-        "trade_window_end_minutes":  float(sig.get("trade_window_end_minutes", 1.5)),
-        "late_window_fallback_minutes": float(sig.get("late_window_fallback_minutes", 3.0)),
-        "late_window_min_distance_pct": float(sig.get("late_window_min_distance_pct", 0.05)),
-        "late_window_max_yes_cents": int(sig.get("late_window_max_yes_cents", 75)),
+        "momentum_threshold_pct":        float(sig.get("momentum_threshold_pct",        0.025)),
+        "momentum_window_secs":          int(  sig.get("momentum_window_seconds",       30)),
+        "min_yes_price_cents":           int(  sig.get("min_yes_price_cents",           25)),
+        "max_yes_price_cents":           int(  sig.get("max_yes_price_cents",           75)),
+        "max_bet_dollars":               float(config.get("trading", {}).get("max_bet_dollars", 10)),
+        "early_entry_window_minutes":    float(sig.get("early_entry_window_minutes",    10)),
+        "early_min_distance_pct":        float(sig.get("early_min_distance_pct",        0.08)),
+        "trade_window_start_minutes":    float(sig.get("trade_window_start_minutes",    5)),
+        "trade_window_end_minutes":      float(sig.get("trade_window_end_minutes",      1.5)),
+        "late_window_fallback_minutes":  float(sig.get("late_window_fallback_minutes",  3.0)),
+        "late_window_min_distance_pct":  float(sig.get("late_window_min_distance_pct",  0.05)),
+        "late_window_max_yes_cents":     int(  sig.get("late_window_max_yes_cents",     75)),
     }
 
-    # ── Parameter variations to test ─────────────────────────
-    # Only vary the most impactful settings; keep everything else at current.
-    variations = []
+    current_label = "Current settings"
 
-    for mom in [0.015, 0.020, 0.025, 0.030]:
-        for late_dist in [0.03, 0.04, 0.05]:
-            label = f"mom={mom:.3f}% late_dist={late_dist:.2f}%"
-            s = {**current, "momentum_threshold_pct": mom, "late_window_min_distance_pct": late_dist}
-            variations.append((label, s))
+    # ── Build parameter grid ─────────────────────────────────────
+    grid = build_parameter_grid(current)
+    print(f"Running {len(grid) + 1} parameter combinations against cached data...")
+    print(f"(This should take under a minute)\n")
 
-    # ── Run current settings first ────────────────────────────
+    # ── Run current settings ───────────────────────────────────────
     all_results = []
-
-    print("Running backtests (this may take a few minutes)...")
-    r = run_backtest(client, markets, current, label="Current settings")
+    r = run_backtest_cached(markets, cache, current, label=current_label)
     all_results.append(r)
+    print(f"  [  1/{len(grid)+1}]  {current_label:<48}  trades={r['trades']}  win={r['win_rate']}%  P&L=${r['total_pnl']:+.2f}")
 
-    # ── Run variations ────────────────────────────────────────
-    for label, settings in variations:
-        r = run_backtest(client, markets, settings, label=label)
+    # ── Run variations ──────────────────────────────────────────────
+    for i, (label, settings) in enumerate(grid, 2):
+        r = run_backtest_cached(markets, cache, settings, label=label)
         all_results.append(r)
+        if i % 10 == 0 or i == len(grid) + 1:
+            print(f"  [{i:>3}/{len(grid)+1}]  {label:<48}  trades={r['trades']}  win={r['win_rate']}%  P&L=${r['total_pnl']:+.2f}")
 
-    # ── Print report ──────────────────────────────────────────
-    print_report(all_results)
+    # ── Print report ──────────────────────────────────────────────────
+    print_report(all_results, current_label=current_label)
 
-    # Save full results to file
-    import json
+    # ── Save results ──────────────────────────────────────────────────────────
     out_path = BOT_DIR / "backtest_results.json"
     with open(out_path, "w") as f:
-        # Remove trade_log from JSON to keep it readable
         clean = [{k: v for k, v in r.items() if k != "trade_log"} for r in all_results]
         json.dump(clean, f, indent=2, default=str)
     print(f"  Full results saved to: backtest_results.json")

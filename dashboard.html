@@ -1005,15 +1005,6 @@
       <div class="settings-group">
         <div class="settings-group-title">Signal Sensitivity</div>
 
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Divergence threshold</span>
-            <span class="setting-value-display" id="val-div"></span>
-          </div>
-          <input type="range" id="sl-div" min="0.01" max="0.5" step="0.01"
-            oninput="document.getElementById('val-div').textContent = parseFloat(this.value).toFixed(2) + '%'">
-          <div class="range-bounds"><span>0.01% (many signals)</span><span>0.5% (rare, strong)</span></div>
-        </div>
 
         <div class="setting-row">
           <div class="setting-label">
@@ -1474,7 +1465,6 @@
     setSlider('sl-start', 'val-start', s.trade_window_start_minutes,    v => v + ' min');
     setSlider('sl-early', 'val-early', s.early_entry_window_minutes ?? s.trade_window_start_minutes, v => v + ' min');
     setSlider('sl-end',   'val-end',   s.trade_window_end_minutes,       v => v + ' min');
-    setSlider('sl-div',   'val-div',   s.divergence_threshold_pct,       v => parseFloat(v).toFixed(2) + '%');
     setSlider('sl-mom',   'val-mom',   s.momentum_threshold_pct,         v => parseFloat(v).toFixed(3) + '%');
     setSlider('sl-minp',  'val-minp',  s.min_yes_price_cents,            v => v + 'c');
     setSlider('sl-maxp',  'val-maxp',  s.max_yes_price_cents,            v => v + 'c');
@@ -1503,7 +1493,6 @@
       trade_window_start_minutes:   parseFloat(document.getElementById('sl-start').value),
       early_entry_window_minutes:   parseFloat(document.getElementById('sl-early').value),
       trade_window_end_minutes:     parseFloat(document.getElementById('sl-end').value),
-      divergence_threshold_pct:     parseFloat(document.getElementById('sl-div').value),
       momentum_threshold_pct:       parseFloat(document.getElementById('sl-mom').value),
       min_yes_price_cents:          parseInt(document.getElementById('sl-minp').value),
       max_yes_price_cents:          parseInt(document.getElementById('sl-maxp').value),

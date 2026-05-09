@@ -51,12 +51,10 @@ signal:
   # CF estimate momentum strategy:
   # When the CF Benchmarks real-time estimate (weighted median of Coinbase/Kraken/Bitstamp/Gemini)
   # is trending strongly, bet that Kalshi's market will follow.
-  momentum_threshold_pct: 0.045  # Minimum CF momentum % to trigger a bet (0.025 = 0.025%)
+  momentum_threshold_pct: 0.025  # Minimum CF momentum % to trigger a bet (0.025 = 0.025%)
                                     # Lower = more signals but noisier; higher = fewer but cleaner
                                     # Sweet spot between 0.02 (noisy) and 0.03 (slow)
-  momentum_window_seconds: 15  # Look at CF price change over this many seconds (30s = cleaner signal)
-
-  divergence_threshold_pct: 0.08  # Legacy field — kept for dashboard slider compatibility
+  momentum_window_seconds: 20  # Look at CF price change over this many seconds (30s = cleaner signal)
 
   # When during the 15-min window to place bets (counting from market close)
   # Two independent sliders on the dashboard control these. Early-entry phase
@@ -69,13 +67,13 @@ signal:
                                     # 1.5min gives positions time to play out (median time-in-trade is ~2min)
 
   # Market price filter - avoid markets that are almost certainly going one way
-  min_yes_price_cents: 40  # Don't bet if market prices YES below 40c (long shots lose consistently)
-  max_yes_price_cents: 80  # Don't bet if market is pricing YES above 80 cents
+  min_yes_price_cents: 39  # Don't bet if market prices YES below 40c (long shots lose consistently)
+  max_yes_price_cents: 73  # Don't bet if market is pricing YES above 80 cents
 
   # Stop-loss, take-profit, and re-entry
-  stop_loss_cents: 16  # Legacy price-based stop (kept for backward compat; used when signal_stop_enabled=false)
-  take_profit_cents: 99  # Bank the gain early when position reaches this price (85-99c)
-  sl_min_hold_secs: 90  # Stop-loss can't fire within this many seconds of entry (prevents noise exits)
+  stop_loss_cents: 23  # Legacy price-based stop (kept for backward compat; used when signal_stop_enabled=false)
+  take_profit_cents: 89  # Bank the gain early when position reaches this price (85-99c)
+  sl_min_hold_secs: 30  # Stop-loss can't fire within this many seconds of entry (prevents noise exits)
   sl_disable_mins: 3.0              # LEGACY: original single SL disable timer — kept as fallback default for signal_sl_disable_mins
 
   # Split SL gates — soft (signal/legacy) vs hard (price-collapse failsafe).
@@ -100,9 +98,9 @@ signal:
   #   - CF estimate is very far from target (market hasn't fully repriced)
   #   - Kalshi YES price is still reasonable (not already at 90c)
   #   - Momentum is confirming the direction
-  early_entry_window_minutes: 7  # How far out to watch for early opportunities
-  early_min_distance_pct: 0.09  # CF must be >= this % from target to enter early (~$46 on $76k BTC)
-  early_max_yes_cents: 70  # Skip early entry if YES already above this (market caught up)
+  early_entry_window_minutes: 10  # How far out to watch for early opportunities
+  early_min_distance_pct: 0.06  # CF must be >= this % from target to enter early (~$46 on $76k BTC)
+  early_max_yes_cents: 50  # Skip early entry if YES already above this (market caught up)
 
   # ──────────────────────────────────────────────────────────
   # Wrong-side entry guard
@@ -127,7 +125,7 @@ signal:
   min_confidence_pct: 0.55  # After a stop-loss exit within a cycle, wait this many seconds before
   # re-entering the same market. Prevents rapid whipsaw losses.
   # 0 = disabled (immediate re-entry, old behavior).
-  sl_cooldown_secs: 90  # ──────────────────────────────────────────────────────────
+  sl_cooldown_secs: 120  # ──────────────────────────────────────────────────────────
   # Late-window fallback (Option B)
   # ──────────────────────────────────────────────────────────
   # If no trade has fired by the final few minutes AND the CF estimate is
@@ -181,5 +179,5 @@ telegram:
 # every interval_minutes.
 reconcile:
   enabled:           true
-  interval_minutes:  5      # how often to check Kalshi
+  interval_minutes:  1      # how often to check Kalshi
   warn_threshold:    1.0    # log a WARNING when local vs Kalshi differ by ≥ $X
