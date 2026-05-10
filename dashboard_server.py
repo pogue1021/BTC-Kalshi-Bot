@@ -220,14 +220,16 @@ def start_dashboard(open_browser: bool = True):
     Starts the dashboard server in a background thread.
     Call this once from main.py before starting the trading loop.
     """
-    server = HTTPServer(("localhost", DASHBOARD_PORT), DashboardHandler)
+    server = HTTPServer(("0.0.0.0", DASHBOARD_PORT), DashboardHandler)
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
     url = f"http://localhost:{DASHBOARD_PORT}"
     print(f"\nDashboard running at: {url}")
-    print("Open that URL in your browser to see the live dashboard.\n")
+    print("  On this device:  http://localhost:5000")
+    print("  On your network: http://<pi-ip>:5000")
+    print("  Via Tailscale:   http://<tailscale-ip>:5000\n")
 
     if open_browser:
         # Small delay so the server is ready before the browser opens
