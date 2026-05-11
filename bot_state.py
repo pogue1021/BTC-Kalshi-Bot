@@ -10,6 +10,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
+# Bump this any time you push a meaningful change — visible in the dashboard
+# footer so you can instantly confirm a Pi pull/restart picked up the new code.
+BOT_VERSION = "1.1.0"
+
 
 @dataclass
 class LiveSettings:
@@ -377,6 +381,7 @@ class BotState:
                 "paper_mode":      self.paper_mode,
                 "trading_enabled": self.trading_enabled,
                 "uptime":          f"{hours:02d}:{mins:02d}:{secs:02d}",
+                "version":         BOT_VERSION,
             },
             "settings": self.settings.to_dict(),
             "assessment": {

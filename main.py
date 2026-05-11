@@ -173,6 +173,56 @@ def _format_no_trade_alert(no_trade_streak: int, skip_reasons_window: Counter) -
 
 
 # ─────────────────────────────────────────────────────────────
+# STARTUP GHOST POSITION CHECK
+# ─────────────────────────────────────────────────────────────
+
+def _check_ghost_positions(kalshi_client, notify_fn):
+    """
+    On startup, scan today's Kalshi fills for any open KXBTC15M positions
+    that the bot has no record of — ghost trades from a previous crash or
+    from the retry bug where place_order succeeded but state wasn't set.
+    Sends a Telegram alert so the user can close the position manually if
+    the market is still active.
+    """
+    logger = logging.getLogger("startup_check")
+    try:
+        now      = datetime.now(timezone.utc)
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        min_ts   = int(midnight.timestamp())
+        prefix   = "KXBTC15M"
+
+        fills       = [f for f in kalshi_client.get_fills(min_ts=min_ts)
+                       if (f.get("ticker") or "").startswith(prefix)]
+        settlements = [s for s in kalshi_client.get_settlements(min_ts=min_ts)
+                       if (s.get("ticker") or "").startswith(prefix)]
+
+        settled_tickers = {s.get("ticker") for s in settlements}
+        sell_tickers    = {f.get("ticker") for f in fills
+                           if (f.get("action") or "").lower() == "sell"}
+        settled_or_sold = settled_tickers | sell_tickers
+        open_buys       = [f for f in fills
+                           if (f.get("action") or "").lower() == "buy"
+                           and f.get("ticker") not in settled_or_sold]
+
+        if open_buys:
+            lines = ["WARNING: Ghost position(s) found on startup — not tracked by bot:"]
+            for f in open_buys:
+                ticker = f.get("ticker", "?")
+                side   = (f.get("side") or "?").upper()
+                qty    = f.get("count_fp", "?")
+                price  = f.get("yes_price_dollars", "?")
+                lines.append(f"  {ticker}  {side}  qty={qty}  @{price}")
+            lines.append("Check Kalshi — if the market is still open, close this position manually.")
+            msg = "\n".join(lines)
+            logger.warning(msg)
+            notify_fn(msg)
+        else:
+            logger.info("Startup check: no ghost positions found.")
+    except Exception as e:
+        logger.warning(f"Startup ghost position check failed: {e}")
+
+
+# ─────────────────────────────────────────────────────────────
 # SETTLEMENT WATCHER
 # ─────────────────────────────────────────────────────────────
 
@@ -790,6 +840,11 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                     price_cents=price_cents, num_contracts=num_contracts,
                     paper_mode=state.paper_mode,
                 )
+                # Consume the trade slot immediately after place_order returns.
+                # If anything below throws, the slot is already used so the bot
+                # won't retry on the same cycle and place a second order on Kalshi.
+                trade_count_this_cycle += 1
+                signal_cross_start_time = None  # fresh tracker for this new trade
 
                 rm_trade = risk_manager.record_trade_opened(
                     ticker=ticker, side=side,
@@ -798,8 +853,6 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                     settings=state.settings.to_dict(),
                 )
                 current_trade = rm_trade
-                trade_count_this_cycle += 1
-                signal_cross_start_time = None  # fresh tracker for this new trade
 
                 # Add to dashboard
                 dashboard_trade = TradeRecord(
@@ -835,14 +888,21 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                 )
 
             except OrderNotFilledError as e:
-                # Order was submitted to Kalshi but didn't confirm — count it as
-                # a used slot so the bot doesn't immediately retry on the same
-                # market. Kalshi may still have the order live on its side.
-                trade_count_this_cycle += 1
+                # place_order raised before our counter increment — consume the
+                # slot and start cooldown so the bot doesn't retry this cycle.
+                if trade_count_this_cycle == 0:
+                    trade_count_this_cycle += 1
                 _cycle_last_sl_time = time.time()
                 logger.error(f"Order did not fill: {e}")
                 state.status = f"Order not filled — waiting before retry"
             except Exception as e:
+                # If place_order returned before this exception (counter already
+                # incremented), don't double-count. If place_order itself threw,
+                # counter is still 0 — consume the slot conservatively since we
+                # can't confirm whether Kalshi saw the order.
+                if trade_count_this_cycle == 0:
+                    trade_count_this_cycle += 1
+                    _cycle_last_sl_time = time.time()
                 logger.error(f"Order placement failed: {e}")
                 state.status = f"Order error: {e}"
 
@@ -926,6 +986,10 @@ async def main():
     except Exception as e:
         logger.error(f"Could not connect to Kalshi: {e}")
         sys.exit(1)
+
+    # Scan for ghost positions from any previous session before the loop starts.
+    # Runs synchronously so the alert fires before the bot begins trading.
+    _check_ghost_positions(kalshi_client, notify)
 
     # Background reconciler — periodically syncs the dashboard's daily P&L
     # to Kalshi's authoritative numbers. Runs in a daemon thread so it never

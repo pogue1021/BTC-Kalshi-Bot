@@ -55,6 +55,16 @@
       font-family: 'SF Mono', 'Fira Code', 'Menlo', 'Monaco', monospace;
     }
 
+    /* ══ Version footer ══ */
+    .version-footer {
+      text-align: center;
+      padding: 18px 0 22px;
+      color: var(--text3);
+      font-size: 11px;
+      letter-spacing: 0.03em;
+    }
+    .version-footer span { margin: 0 8px; }
+
     /* ══ Header ══ */
     header {
       background: rgba(17,17,19,0.75);
@@ -1365,6 +1375,14 @@
     updateBotButton(d.meta.trading_enabled);
     if (d.settings) loadSettings(d.settings);
     if (d.assessment) updateAssessment(d.assessment);
+
+    /* Version footer */
+    if (d.meta.version) {
+      document.getElementById('ver-string').textContent = 'Kalshi Bot v' + d.meta.version;
+      const now = new Date();
+      document.getElementById('ver-time').textContent =
+        now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+    }
   }
 
   /* ── Market assessment panel ── */
@@ -1537,5 +1555,12 @@
   fetchState();
   setInterval(fetchState, 250);
 </script>
+
+<div class="version-footer">
+  <span id="ver-string">Kalshi Bot</span>
+  <span>·</span>
+  <span>Last update: <span id="ver-time">—</span></span>
+</div>
+
 </body>
 </html>
