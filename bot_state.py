@@ -12,7 +12,7 @@ from typing import Optional
 
 # Bump this any time you push a meaningful change — visible in the dashboard
 # footer so you can instantly confirm a Pi pull/restart picked up the new code.
-BOT_VERSION = "1.1.1"
+BOT_VERSION = "1.1.2"
 
 
 @dataclass

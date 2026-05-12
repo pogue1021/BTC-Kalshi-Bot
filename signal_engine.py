@@ -481,12 +481,14 @@ class SignalEngine:
         if cf_past is not None and cf_past > 0:
             momentum_pct = ((cf_now - cf_past) / cf_past) * 100
             threshold = float(getattr(cfg, "momentum_threshold_pct", 0.025))
+            # Only block on a strong collapse — 2x threshold filters genuine
+            # reversals while allowing neutral or mildly oscillating markets through.
             momentum_against = (
-                (side_signal == Signal.YES and momentum_pct < -threshold) or
-                (side_signal == Signal.NO  and momentum_pct >  threshold)
+                (side_signal == Signal.YES and momentum_pct < -(threshold * 2)) or
+                (side_signal == Signal.NO  and momentum_pct >  (threshold * 2))
             )
             if momentum_against:
-                return None  # CF collapsing toward floor — skip
+                return None  # CF actively collapsing toward floor — skip
 
         mins_left = seconds_until_close / 60
         return SignalResult(
