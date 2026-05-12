@@ -471,37 +471,17 @@ class SignalEngine:
         if side_price < cfg.min_yes_price_cents:
             return None
 
-        # Momentum check: skip if CF is moving strongly toward the floor against
-        # our position. A late-window YES while CF is actively collapsing toward
-        # the strike is the exact scenario causing losses — the distance filter
-        # passes because CF is still above the floor, but the direction is wrong.
-        momentum_window = int(getattr(cfg, "momentum_window_secs", 20))
-        cf_past = price_store.get_cf_estimate_n_seconds_ago(momentum_window)
-        momentum_pct = 0.0
-        if cf_past is not None and cf_past > 0:
-            momentum_pct = ((cf_now - cf_past) / cf_past) * 100
-            threshold = float(getattr(cfg, "momentum_threshold_pct", 0.025))
-            # Only block on a strong collapse — 2x threshold filters genuine
-            # reversals while allowing neutral or mildly oscillating markets through.
-            momentum_against = (
-                (side_signal == Signal.YES and momentum_pct < -(threshold * 2)) or
-                (side_signal == Signal.NO  and momentum_pct >  (threshold * 2))
-            )
-            if momentum_against:
-                return None  # CF actively collapsing toward floor — skip
-
         mins_left = seconds_until_close / 60
         return SignalResult(
             signal      = side_signal,
             confidence  = 0.60,
             cf_estimate = round(cf_now, 2),
-            momentum_pct= round(momentum_pct, 4),
+            momentum_pct= 0.0,
             feeds_live  = len(live_ex),
             consensus   = None,
             reason      = (
                 f"[LATE-WINDOW FALLBACK] CF ${distance_dollars:+.0f} "
                 f"{'above' if side_signal == Signal.YES else 'below'} strike ${floor_strike:,.0f}, "
-                f"mom {momentum_pct:+.4f}%, "
                 f"{mins_left:.1f}min left, {side_signal.value} @ {side_price}c — no prior trade this cycle"
             ),
             binance_price  = price_store.binance_price or 0.0,
