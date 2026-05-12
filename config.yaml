@@ -134,7 +134,7 @@ signal:
   # market is slow to price in an obvious outcome.
   # To DISABLE and revert to prior behavior: set late_window_fallback_enabled: false
   late_window_fallback_enabled:  true
-  late_window_fallback_minutes:  3.0   # Fires only in final N minutes before close
+  late_window_fallback_minutes:  2.0   # Fires only in final N minutes before close
   late_window_min_distance_pct: 0.06  # CF must be >= this % from strike (~$38 on $76k BTC)
   late_window_max_yes_cents: 75  # Skip if YES already priced in this high
 
