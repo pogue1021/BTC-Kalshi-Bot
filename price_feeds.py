@@ -211,18 +211,14 @@ class PriceStore:
 
     def is_ready(self) -> bool:
         """
-        Ready when Coinbase + at least one other exchange are live.
-        Coinbase is required since it has the highest weight in the BRR.
+        Ready when at least 2 feeds are live. Coinbase preferred but not
+        required — if it's down the other three can still compute a CF estimate.
         """
-        coinbase_ok = (
-            self._prices["coinbase"] is not None
-            and self.age_seconds("coinbase") < 15
+        live = sum(
+            1 for k in ("coinbase", "kraken", "bitstamp", "gemini")
+            if self._prices[k] is not None and self.age_seconds(k) < 15
         )
-        others_ok = any(
-            self._prices[k] is not None and self.age_seconds(k) < 15
-            for k in ("kraken", "bitstamp", "gemini")
-        )
-        return coinbase_ok and others_ok
+        return live >= 2
 
 
 # ─────────────────────────────────────────────────────────────
