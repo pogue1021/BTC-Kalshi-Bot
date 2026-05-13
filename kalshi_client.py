@@ -675,12 +675,26 @@ class KalshiClient:
                         f"Could not confirm order {order_id} status after "
                         f"404 cancel: {confirm_err}"
                     )
-            # Non-404 cancel failure, or order confirmed not filled — log and fall through.
+            # Non-404 cancel failure — the order may have filled in the gap
+            # between our grace window and the cancel attempt. Do one final
+            # status check before raising so we don't create a ghost position.
             logger.error(
                 f"Could not cancel order {order_id}: {cancel_err} — "
-                f"if it executed in the gap, the position may be UNTRACKED on Kalshi. "
-                f"Check the Kalshi portfolio manually."
+                f"checking order status before giving up."
             )
+            try:
+                final_check  = self.get_order(order_id)
+                final_status = (final_check.get("status") or "").lower()
+                if final_status in FILLED:
+                    logger.info(
+                        f"Order {order_id} confirmed filled after cancel error "
+                        f"({context}) — recording as filled."
+                    )
+                    response["order"] = final_check
+                    return response
+            except Exception:
+                pass  # can't confirm — fall through to OrderNotFilledError
+
         raise OrderNotFilledError(
             f"Order {order_id} status={status!r} (not filled within {grace_secs:.1f}s) — canceled"
         )
