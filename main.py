@@ -683,7 +683,7 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                     except Exception:
                         pass
 
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(2)
                     continue
 
             # ── Max trades per cycle check ────────────────────────────────────

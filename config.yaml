@@ -73,7 +73,7 @@ signal:
   # Stop-loss, take-profit, and re-entry
   stop_loss_cents: 23  # Legacy price-based stop (kept for backward compat; used when signal_stop_enabled=false)
   take_profit_cents: 89  # Bank the gain early when position reaches this price (85-99c)
-  sl_min_hold_secs: 30  # Stop-loss can't fire within this many seconds of entry (prevents noise exits)
+  sl_min_hold_secs: 15  # Stop-loss can't fire within this many seconds of entry (prevents noise exits)
   sl_disable_mins: 3.0              # LEGACY: original single SL disable timer — kept as fallback default for signal_sl_disable_mins
 
   # Split SL gates — soft (signal/legacy) vs hard (price-collapse failsafe).
@@ -91,7 +91,7 @@ signal:
   # failsafe (`stop_loss_fallback_cents`) still catches catastrophic moves.
   signal_stop_enabled: true         # Master toggle for signal-based stop
   signal_stop_persistence_secs: 15  # CF must stay on wrong side this long before exit
-  stop_loss_fallback_cents: 25      # Hard price failsafe — always exits if loss hits this
+  stop_loss_fallback_cents: 20      # Hard price failsafe — always exits if loss hits this
 
   # Early entry (6–12 min before close)
   # Bot can enter before the normal window ONLY when the signal is overwhelming:
