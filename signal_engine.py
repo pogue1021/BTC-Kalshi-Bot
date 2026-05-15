@@ -341,15 +341,18 @@ class SignalEngine:
                 )
 
             # CF is clearly above or below target
-            # Don't trade if momentum is strongly heading toward target (reversal risk)
-            if momentum_toward_target and abs_mom > threshold * 3:
+            # Don't trade if momentum is heading toward target — even a small
+            # reversal at these prices means a fast swing through the strike.
+            # Old threshold (threshold*3) was too permissive: bot entered on
+            # weak opposing momentum and got stopped out repeatedly.
+            if momentum_toward_target and abs_mom > threshold * 0.5:
                 return SignalResult(
                     signal=Signal.HOLD, confidence=0.0,
                     cf_estimate=round(cf_now, 2),
                     momentum_pct=round(momentum_pct, 4),
                     feeds_live=len(live_ex), consensus=consensus,
                     reason=f"CF ${distance_dollars:+.0f} {'above' if base_signal==Signal.YES else 'below'} "
-                           f"target but momentum moving toward it — waiting"
+                           f"target but momentum {momentum_pct:+.4f}% moving toward it — waiting"
                 )
 
             signal    = base_signal
@@ -486,5 +489,5 @@ class SignalEngine:
             ),
             binance_price  = price_store.binance_price or 0.0,
             coinbase_price = price_store.coinbase_price or 0.0,
-            divergence_pct = momentum_pct,
+            divergence_pct = 0.0,
         )

@@ -1040,6 +1040,7 @@ async def main_no_browser():
     """
     config     = load_config("config.yaml")
     paper_mode = config.get("trading", {}).get("paper_mode", True)
+    log_cfg    = config.get("logging", {})
 
     log_file = str(BOT_DIR / log_cfg.get("log_file", "bot_trades.log"))
     setup_logging(
