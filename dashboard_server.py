@@ -52,6 +52,8 @@ _SETTINGS_TO_CONFIG = {
     "min_confidence_pct":          ("signal", "min_confidence_pct"),
     "sl_cooldown_secs":            ("signal", "sl_cooldown_secs"),
     "max_bet_dollars":             ("trading", "max_bet_dollars"),
+    "max_daily_loss":              ("trading", "max_daily_loss"),
+    "min_daily_profit_lock":       ("trading", "min_daily_profit_lock"),
 }
 
 

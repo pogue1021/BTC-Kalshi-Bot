@@ -80,6 +80,10 @@ class LiveSettings:
     # Resets when a new market opens. 0 = no cooldown (old behavior).
     sl_cooldown_secs: int = 60
 
+    # Risk / money management (live-adjustable from dashboard)
+    max_daily_loss:        float = 75.0   # Stop trading if down this much today ($)
+    min_daily_profit_lock: float = 0.0    # Stop trading once up this much today ($); 0 = disabled
+
     def to_dict(self) -> dict:
         return {
             "trade_window_start_minutes": self.trade_window_start_minutes,
@@ -109,6 +113,8 @@ class LiveSettings:
             "max_wrong_side_distance_pct":   self.max_wrong_side_distance_pct,
             "min_confidence_pct":            self.min_confidence_pct,
             "sl_cooldown_secs":              self.sl_cooldown_secs,
+            "max_daily_loss":               self.max_daily_loss,
+            "min_daily_profit_lock":        self.min_daily_profit_lock,
         }
 
     def update_from_dict(self, d: dict):
@@ -166,6 +172,10 @@ class LiveSettings:
             self.min_confidence_pct = float(d["min_confidence_pct"])
         if "sl_cooldown_secs" in d:
             self.sl_cooldown_secs = int(d["sl_cooldown_secs"])
+        if "max_daily_loss" in d:
+            self.max_daily_loss = float(d["max_daily_loss"])
+        if "min_daily_profit_lock" in d:
+            self.min_daily_profit_lock = float(d["min_daily_profit_lock"])
 
 
 @dataclass

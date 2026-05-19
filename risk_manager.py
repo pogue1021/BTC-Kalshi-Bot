@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, date
 from typing import Optional
 
+from bot_state import state as _bot_state
+
 # Always save next to this script file, regardless of working directory
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trades_history.json")
 
@@ -84,11 +86,13 @@ class RiskManager:
 
         Example: YES price = 60¢ → we risk $0.60 per contract to win $1.00
         We aim to risk at most `max_bet_dollars` per trade.
+        Reads max_bet_dollars from live settings so dashboard slider takes effect immediately.
         """
         if price_cents <= 0 or price_cents >= 100:
             return 0
+        max_bet = float(getattr(_bot_state.settings, "max_bet_dollars", self.max_bet_dollars))
         cost_per_contract = price_cents / 100
-        num_contracts = int(self.max_bet_dollars / cost_per_contract)
+        num_contracts = int(max_bet / cost_per_contract)
         return max(1, num_contracts)  # Always at least 1 contract if we trade
 
     # ─────────────────────────────────────────────────────────
@@ -110,18 +114,22 @@ class RiskManager:
             self._last_trade_date  = today
             self._consecutive_losses = 0
 
+        # Read live values from dashboard settings so sliders take effect immediately
+        max_daily_loss        = float(getattr(_bot_state.settings, "max_daily_loss",        self.max_daily_loss))
+        min_daily_profit_lock = float(getattr(_bot_state.settings, "min_daily_profit_lock", self.min_daily_profit_lock))
+
         # Daily profit lock — stop trading once we've banked enough for the day
-        if self.min_daily_profit_lock > 0 and self._daily_pnl >= self.min_daily_profit_lock:
+        if min_daily_profit_lock > 0 and self._daily_pnl >= min_daily_profit_lock:
             return False, (
                 f"Profit lock: daily P&L ${self._daily_pnl:.2f} reached "
-                f"target ${self.min_daily_profit_lock:.2f}. Done for today."
+                f"target ${min_daily_profit_lock:.2f}. Done for today."
             )
 
         # Daily loss limit
-        if self._daily_pnl <= -self.max_daily_loss:
+        if self._daily_pnl <= -max_daily_loss:
             return False, (
                 f"Daily loss limit hit: ${abs(self._daily_pnl):.2f} lost "
-                f"(limit: ${self.max_daily_loss}). Bot stopped for today."
+                f"(limit: ${max_daily_loss}). Bot stopped for today."
             )
 
         # Max consecutive losses kill switch

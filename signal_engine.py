@@ -93,6 +93,11 @@ class SignalEngine:
         state.settings.max_wrong_side_distance_pct   = float(signal_cfg.get("max_wrong_side_distance_pct", 0.015))
         state.settings.min_confidence_pct         = float(signal_cfg.get("min_confidence_pct", 0.50))
         state.settings.sl_cooldown_secs           = int(signal_cfg.get("sl_cooldown_secs", 60))
+        # Risk limits — seeded from trading section so dashboard sliders reflect config on startup
+        trading_cfg = config.get("trading", {})
+        state.settings.max_daily_loss        = float(trading_cfg.get("max_daily_loss",        75.0))
+        state.settings.min_daily_profit_lock = float(trading_cfg.get("min_daily_profit_lock", 0.0))
+        state.settings.max_bet_dollars       = float(trading_cfg.get("max_bet_dollars",       10.0))
 
     def evaluate(
         self,

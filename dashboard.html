@@ -1108,6 +1108,28 @@
 
         <div class="setting-row">
           <div class="setting-label">
+            <span>Daily loss limit</span>
+            <span class="setting-value-display" id="val-maxloss"></span>
+          </div>
+          <input type="range" id="sl-maxloss" min="5" max="100" step="5"
+            oninput="document.getElementById('val-maxloss').textContent = '$' + this.value">
+          <div class="range-bounds"><span>$5 (tight)</span><span>$100</span></div>
+          <div class="setting-hint">Bot stops trading for the day once losses reach this amount.</div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label">
+            <span>Profit lock (daily)</span>
+            <span class="setting-value-display" id="val-proflock"></span>
+          </div>
+          <input type="range" id="sl-proflock" min="0" max="100" step="5"
+            oninput="document.getElementById('val-proflock').textContent = this.value == 0 ? 'Off' : '$' + this.value">
+          <div class="range-bounds"><span>Off</span><span>$100</span></div>
+          <div class="setting-hint">Stop trading once up this much today. 0 = disabled.</div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label">
             <span>Stop-loss threshold</span>
             <span class="setting-value-display" id="val-sl"></span>
           </div>
@@ -1486,7 +1508,9 @@
     setSlider('sl-mom',   'val-mom',   s.momentum_threshold_pct,         v => parseFloat(v).toFixed(3) + '%');
     setSlider('sl-minp',  'val-minp',  s.min_yes_price_cents,            v => v + 'c');
     setSlider('sl-maxp',  'val-maxp',  s.max_yes_price_cents,            v => v + 'c');
-    setSlider('sl-bet',   'val-bet',   s.max_bet_dollars,                v => '$' + v);
+    setSlider('sl-bet',      'val-bet',      s.max_bet_dollars,           v => '$' + v);
+    setSlider('sl-maxloss',  'val-maxloss',  s.max_daily_loss ?? 75,     v => '$' + v);
+    setSlider('sl-proflock', 'val-proflock', s.min_daily_profit_lock ?? 0, v => v == 0 ? 'Off' : '$' + v);
     setSlider('sl-sl',    'val-sl',    s.stop_loss_cents,                v => v + 'c');
     setSlider('sl-tp',    'val-tp',    s.take_profit_cents,              v => v + 'c');
     setSlider('sl-maxt',  'val-maxt',  s.max_trades_per_cycle,           v => v);
@@ -1515,6 +1539,8 @@
       min_yes_price_cents:          parseInt(document.getElementById('sl-minp').value),
       max_yes_price_cents:          parseInt(document.getElementById('sl-maxp').value),
       max_bet_dollars:              parseFloat(document.getElementById('sl-bet').value),
+      max_daily_loss:               parseFloat(document.getElementById('sl-maxloss').value),
+      min_daily_profit_lock:        parseFloat(document.getElementById('sl-proflock').value),
       stop_loss_cents:              parseInt(document.getElementById('sl-sl').value),
       take_profit_cents:            parseInt(document.getElementById('sl-tp').value),
       max_trades_per_cycle:         parseInt(document.getElementById('sl-maxt').value),
