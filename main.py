@@ -176,50 +176,105 @@ def _format_no_trade_alert(no_trade_streak: int, skip_reasons_window: Counter) -
 # STARTUP GHOST POSITION CHECK
 # ─────────────────────────────────────────────────────────────
 
-def _check_ghost_positions(kalshi_client, notify_fn):
+def _find_ghost_positions(kalshi_client):
     """
-    On startup, scan today's Kalshi fills for any open KXBTC15M positions
-    that the bot has no record of — ghost trades from a previous crash or
-    from the retry bug where place_order succeeded but state wasn't set.
-    Sends a Telegram alert so the user can close the position manually if
-    the market is still active.
+    Scan today's Kalshi fills and return any open KXBTC15M positions the bot
+    has no record of.  Returns a list of fill dicts with an added '_net_qty'
+    key (positive = net long).  Called at startup AND at every cycle
+    transition so ghosts created during runtime are caught quickly.
     """
-    logger = logging.getLogger("startup_check")
+    now      = datetime.now(timezone.utc)
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    min_ts   = int(midnight.timestamp())
+    prefix   = "KXBTC15M"
+
+    fills       = [f for f in kalshi_client.get_fills(min_ts=min_ts)
+                   if (f.get("ticker") or "").startswith(prefix)]
+    settlements = [s for s in kalshi_client.get_settlements(min_ts=min_ts)
+                   if (s.get("ticker") or "").startswith(prefix)]
+
+    settled_tickers = {s.get("ticker") for s in settlements}
+    sell_tickers    = {f.get("ticker") for f in fills
+                       if (f.get("action") or "").lower() == "sell"}
+    settled_or_sold = settled_tickers | sell_tickers
+
+    return [f for f in fills
+            if (f.get("action") or "").lower() == "buy"
+            and f.get("ticker") not in settled_or_sold]
+
+
+def _check_ghost_positions(kalshi_client, notify_fn, active_ticker=None,
+                           risk_manager=None, label="startup"):
+    """
+    Find untracked open positions and alert via Telegram.
+
+    If an open ghost is on the currently active market (`active_ticker`)
+    AND risk_manager is provided, reconstruct a Trade object and return it
+    so the caller can set current_trade and begin stop-loss monitoring.
+    Returns the recovered Trade on success, None otherwise.
+
+    `label` is used in log/alert text ('startup' vs 'cycle-check').
+    """
+    logger = logging.getLogger("ghost_check")
     try:
-        now      = datetime.now(timezone.utc)
-        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        min_ts   = int(midnight.timestamp())
-        prefix   = "KXBTC15M"
+        open_buys = _find_ghost_positions(kalshi_client)
 
-        fills       = [f for f in kalshi_client.get_fills(min_ts=min_ts)
-                       if (f.get("ticker") or "").startswith(prefix)]
-        settlements = [s for s in kalshi_client.get_settlements(min_ts=min_ts)
-                       if (s.get("ticker") or "").startswith(prefix)]
+        if not open_buys:
+            if label == "startup":
+                logger.info("Startup check: no ghost positions found.")
+            return None
 
-        settled_tickers = {s.get("ticker") for s in settlements}
-        sell_tickers    = {f.get("ticker") for f in fills
-                           if (f.get("action") or "").lower() == "sell"}
-        settled_or_sold = settled_tickers | sell_tickers
-        open_buys       = [f for f in fills
-                           if (f.get("action") or "").lower() == "buy"
-                           and f.get("ticker") not in settled_or_sold]
+        lines = [f"WARNING: Ghost position(s) found ({label}) — not tracked by bot:"]
+        recovered_trade = None
 
-        if open_buys:
-            lines = ["WARNING: Ghost position(s) found on startup — not tracked by bot:"]
-            for f in open_buys:
-                ticker = f.get("ticker", "?")
-                side   = (f.get("side") or "?").upper()
-                qty    = f.get("count_fp", "?")
-                price  = f.get("yes_price_dollars", "?")
-                lines.append(f"  {ticker}  {side}  qty={qty}  @{price}")
-            lines.append("Check Kalshi — if the market is still open, close this position manually.")
-            msg = "\n".join(lines)
-            logger.warning(msg)
-            notify_fn(msg)
-        else:
-            logger.info("Startup check: no ghost positions found.")
+        for f in open_buys:
+            ticker    = f.get("ticker", "?")
+            side      = (f.get("side") or "?").lower()
+            qty_raw   = f.get("count_fp", 0)
+            qty       = int(float(qty_raw)) if qty_raw else 0
+            yes_price = f.get("yes_price_dollars")
+            price_c   = round(float(yes_price) * 100) if yes_price else 0
+            # For a NO buy, our cost is the no_price (= 1 - yes_price)
+            entry_c   = price_c if side == "yes" else (100 - price_c)
+
+            lines.append(f"  {ticker}  {side.upper()}  qty={qty}  entry≈{entry_c}c")
+
+            # If this ghost is on the currently active market, recover it
+            if (ticker == active_ticker and risk_manager is not None
+                    and qty > 0 and entry_c > 0 and recovered_trade is None):
+                created = f.get("created_time", "")
+                try:
+                    from datetime import timezone as _tz
+                    opened_ts = datetime.fromisoformat(
+                        created.replace("Z", "+00:00")
+                    ).timestamp()
+                except Exception:
+                    opened_ts = time.time()
+
+                recovered_trade = risk_manager.record_trade_opened(
+                    ticker        = ticker,
+                    side          = side,
+                    price_cents   = entry_c,
+                    num_contracts = qty,
+                    paper         = False,
+                )
+                # Backfill the open timestamp from the fill data
+                recovered_trade.opened_at = opened_ts
+                lines.append(
+                    f"  ↳ Recovered as active trade — stop-loss monitoring resumed."
+                )
+
+        if recovered_trade is None:
+            lines.append("Check Kalshi — if the market is still open, close manually.")
+
+        msg = "\n".join(lines)
+        logger.warning(msg)
+        notify_fn(msg)
+        return recovered_trade
+
     except Exception as e:
-        logger.warning(f"Startup ghost position check failed: {e}")
+        logger.warning(f"Ghost position check failed ({label}): {e}")
+        return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -412,6 +467,32 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                 _cycle_last_sl_time     = 0.0   # reset per-cycle SL cooldown
                 _last_hold_reason       = None   # force first HOLD in new market to log
                 _last_hold_log_time     = 0.0
+
+                # Per-cycle ghost check — catches positions created during runtime
+                # (crash mid-order, connection reset, etc.) not just at startup.
+                # Awaited inline so recovery is race-condition-free before the
+                # loop resumes signal evaluation for this cycle.
+                if not state.paper_mode:
+                    try:
+                        recovered = await asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: _check_ghost_positions(
+                                kalshi_client, notify,
+                                active_ticker = ticker,
+                                risk_manager  = risk_manager,
+                                label         = "cycle-check",
+                            )
+                        )
+                        if recovered is not None:
+                            current_trade          = recovered
+                            trade_count_this_cycle = 1
+                            logger.warning(
+                                f"Ghost recovered on {ticker}: "
+                                f"{recovered.side.upper()} {recovered.num_contracts}x "
+                                f"@ {recovered.price_cents}c — stop-loss monitoring resumed"
+                            )
+                    except Exception as _ge:
+                        logger.warning(f"Runtime ghost check error: {_ge}")
 
             # ── Get market prices ─────────────────────────────────────────────
             try:
@@ -989,7 +1070,7 @@ async def main():
 
     # Scan for ghost positions from any previous session before the loop starts.
     # Runs synchronously so the alert fires before the bot begins trading.
-    _check_ghost_positions(kalshi_client, notify)
+    _check_ghost_positions(kalshi_client, notify, label="startup")
 
     # Background reconciler — periodically syncs the dashboard's daily P&L
     # to Kalshi's authoritative numbers. Runs in a daemon thread so it never
