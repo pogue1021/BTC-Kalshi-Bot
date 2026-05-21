@@ -26,6 +26,8 @@ from signal_engine import SignalEngine, Signal
 from kalshi_client import load_client_from_config, OrderNotFilledError
 from risk_manager import RiskManager
 from bot_state import state, TradeRecord
+from bot_state_v2 import state_v2
+from strategy_v2 import v2_trading_loop
 from dashboard_server import start_dashboard, _persist_settings_to_config
 from telegram_kill import start_telegram_kill_switch, notify
 from kalshi_reconciler import start_reconciler
@@ -1111,6 +1113,7 @@ async def main():
         run_bitstamp_feed(price_store,  print_prices=False),
         run_gemini_feed(price_store,    print_prices=False),
         trading_loop(price_store, config, kalshi_client, signal_engine, risk_manager),
+        v2_trading_loop(price_store, kalshi_client),
     )
 
 
@@ -1201,6 +1204,7 @@ async def main_no_browser():
         run_bitstamp_feed(price_store,  print_prices=False),
         run_gemini_feed(price_store,    print_prices=False),
         trading_loop(price_store, config, kalshi_client, signal_engine, risk_manager),
+        v2_trading_loop(price_store, kalshi_client),
     )
 
 

@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOT 2.0 — Late Window Edge</title>
+<style>
+  :root {
+    --bg:      #0d1117;
+    --surface: #161b22;
+    --border:  #30363d;
+    --text:    #e6edf3;
+    --muted:   #8b949e;
+    --green:   #3fb950;
+    --red:     #f85149;
+    --yellow:  #d29922;
+    --blue:    #58a6ff;
+    --purple:  #bc8cff;
+    --orange:  #ffa657;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", monospace; font-size: 14px; min-height: 100vh; }
+
+  /* ── Header ── */
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  .back-btn { background: var(--border); color: var(--muted); border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; text-decoration: none; }
+  .back-btn:hover { background: #3d444d; color: var(--text); }
+  .header-title { font-size: 18px; font-weight: 700; color: var(--purple); letter-spacing: 1px; }
+  .header-sub { color: var(--muted); font-size: 12px; }
+  .paper-badge { margin-left: auto; background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .version { color: var(--muted); font-size: 11px; }
+
+  /* ── Arm button ── */
+  .arm-row { padding: 16px 20px; display: flex; align-items: center; gap: 12px; }
+  #arm-btn { padding: 10px 32px; border-radius: 8px; border: none; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s; letter-spacing: 0.5px; }
+  #arm-btn.disarmed { background: var(--purple); color: #fff; }
+  #arm-btn.disarmed:hover { background: #a370e3; }
+  #arm-btn.armed { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.4); }
+  #arm-btn.armed:hover { background: rgba(248,81,73,0.25); }
+  .arm-note { color: var(--muted); font-size: 12px; }
+
+  /* ── Status bar ── */
+  .status-bar { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px 20px; }
+  #status-text { color: var(--blue); font-size: 13px; }
+
+  /* ── Main metrics ── */
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; padding: 16px 20px; }
+  .metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .metric-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .metric-value { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .metric-sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .green { color: var(--green); }
+  .red   { color: var(--red); }
+  .blue  { color: var(--blue); }
+  .yellow{ color: var(--yellow); }
+  .purple{ color: var(--purple); }
+  .muted { color: var(--muted); }
+
+  /* ── Edge indicator ── */
+  .edge-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin: 0 20px 16px; padding: 16px 20px; display: flex; align-items: center; gap: 20px; }
+  .edge-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+  .edge-dot.waiting  { background: var(--muted); }
+  .edge-dot.watching { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+  .edge-dot.edge     { background: var(--green); box-shadow: 0 0 10px var(--green); animation: pulse 1s infinite; }
+  .edge-dot.no-edge  { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .edge-label { font-weight: 600; font-size: 15px; }
+  .edge-detail { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  /* ── Open position ── */
+  .position-card { background: rgba(88,166,255,0.05); border: 1px solid rgba(88,166,255,0.2); border-radius: 8px; margin: 0 20px 16px; padding: 16px 20px; display: none; }
+  .position-card.visible { display: block; }
+  .position-title { color: var(--blue); font-weight: 600; margin-bottom: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .position-row { display: flex; gap: 24px; flex-wrap: wrap; }
+  .position-item label { color: var(--muted); font-size: 11px; display: block; }
+  .position-item span { font-size: 15px; font-weight: 600; }
+
+  /* ── Sections ── */
+  .section { margin: 0 20px 16px; }
+  .section-title { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+
+  /* ── Stats row ── */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; text-align: center; }
+  .stat-box .val { font-size: 18px; font-weight: 700; }
+  .stat-box .lbl { color: var(--muted); font-size: 10px; margin-top: 2px; }
+
+  /* ── Settings ── */
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .setting-row { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+  .setting-label { color: var(--muted); font-size: 11px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+  .setting-label span { color: var(--text); font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--purple); }
+
+  /* ── Trade history ── */
+  .trade-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .trade-table th { color: var(--muted); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 500; }
+  .trade-table td { padding: 7px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); }
+  .trade-table tr:last-child td { border-bottom: none; }
+  .win-row  td:first-child { border-left: 2px solid var(--green); }
+  .loss-row td:first-child { border-left: 2px solid var(--red); }
+  .open-row td:first-child { border-left: 2px solid var(--blue); }
+  .no-trades { color: var(--muted); font-size: 13px; text-align: center; padding: 24px; }
+
+  .footer { padding: 12px 20px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--border); display: flex; gap: 16px; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <a href="/" class="back-btn">← BOT 1.0</a>
+  <div>
+    <div class="header-title">⚡ BOT 2.0</div>
+    <div class="header-sub">Late-Window Edge Strategy</div>
+  </div>
+  <div class="paper-badge" id="mode-badge">📄 PAPER MODE</div>
+  <div class="version" id="version-label">v2.0.0</div>
+</div>
+
+<!-- Arm button -->
+<div class="arm-row">
+  <button id="arm-btn" class="disarmed" onclick="toggleArm()">▶ ARM BOT 2.0</button>
+  <div class="arm-note" id="arm-note">Arming BOT 2.0 will pause BOT 1.0</div>
+</div>
+
+<!-- Status bar -->
+<div class="status-bar">
+  <div id="status-text">Initialising...</div>
+</div>
+
+<!-- Main metrics -->
+<div class="metrics">
+  <div class="metric-card">
+    <div class="metric-label">BTC Price (CF)</div>
+    <div class="metric-value blue" id="btc-price">—</div>
+    <div class="metric-sub">CF Benchmarks estimate</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Strike Price</div>
+    <div class="metric-value muted" id="strike-price">—</div>
+    <div class="metric-sub" id="market-ticker">No active market</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Distance from Strike</div>
+    <div class="metric-value" id="distance-value">—</div>
+    <div class="metric-sub" id="distance-sub">—</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Time Until Close</div>
+    <div class="metric-value" id="time-left">—</div>
+    <div class="metric-sub" id="entry-window-status">—</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Kalshi YES Price</div>
+    <div class="metric-value" id="yes-price">—</div>
+    <div class="metric-sub" id="no-price-sub">—</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Paper P&L Today</div>
+    <div class="metric-value" id="daily-pnl">$0.00</div>
+    <div class="metric-sub" id="total-pnl-sub">Total: $0.00</div>
+  </div>
+</div>
+
+<!-- Edge indicator -->
+<div class="edge-card">
+  <div class="edge-dot waiting" id="edge-dot"></div>
+  <div>
+    <div class="edge-label" id="edge-label">WAITING</div>
+    <div class="edge-detail" id="edge-detail">Bot is not armed</div>
+  </div>
+</div>
+
+<!-- Open position -->
+<div class="position-card" id="position-card">
+  <div class="position-title">🔵 Open Position (holding to settlement)</div>
+  <div class="position-row">
+    <div class="position-item"><label>Side</label><span id="pos-side">—</span></div>
+    <div class="position-item"><label>Entry Price</label><span id="pos-entry">—</span></div>
+    <div class="position-item"><label>Contracts</label><span id="pos-contracts">—</span></div>
+    <div class="position-item"><label>Cost</label><span id="pos-cost">—</span></div>
+    <div class="position-item"><label>BTC at Entry</label><span id="pos-btc">—</span></div>
+    <div class="position-item"><label>Strike</label><span id="pos-strike">—</span></div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="section">
+  <div class="section-title">Session Stats (Paper)</div>
+  <div class="stats-row">
+    <div class="stat-box"><div class="val green" id="stat-wins">0</div><div class="lbl">Wins</div></div>
+    <div class="stat-box"><div class="val red"   id="stat-losses">0</div><div class="lbl">Losses</div></div>
+    <div class="stat-box"><div class="val blue"  id="stat-wr">—</div><div class="lbl">Win Rate</div></div>
+    <div class="stat-box"><div class="val"       id="stat-pnl">$0.00</div><div class="lbl">Total P&L</div></div>
+  </div>
+</div>
+
+<!-- Settings -->
+<div class="section">
+  <div class="section-title">Strategy Settings</div>
+  <div class="settings-grid">
+    <div class="setting-row">
+      <div class="setting-label">Entry Window <span id="lbl-window">3.0 min</span></div>
+      <input type="range" id="sl-window" min="1" max="6" step="0.5" value="3.0" oninput="updateLabel('lbl-window', this.value, ' min')">
+      <div style="color:var(--muted);font-size:10px;margin-top:4px">Only enter in final N minutes of cycle</div>
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">Min Distance <span id="lbl-dist">$200</span></div>
+      <input type="range" id="sl-dist" min="50" max="600" step="25" value="200" oninput="updateLabel('lbl-dist', '$'+this.value)">
+      <div style="color:var(--muted);font-size:10px;margin-top:4px">BTC must be this far from strike</div>
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">Max YES to buy YES <span id="lbl-max-yes">80¢</span></div>
+      <input type="range" id="sl-max-yes" min="55" max="95" step="1" value="80" oninput="updateLabel('lbl-max-yes', this.value+'¢')">
+      <div style="color:var(--muted);font-size:10px;margin-top:4px">Skip YES if market already priced it in</div>
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">Min YES to buy NO <span id="lbl-min-no">20¢</span></div>
+      <input type="range" id="sl-min-no" min="5" max="45" step="1" value="20" oninput="updateLabel('lbl-min-no', this.value+'¢')">
+      <div style="color:var(--muted);font-size:10px;margin-top:4px">Skip NO if YES is already cheap</div>
+    </div>
+    <div class="setting-row">
+      <div class="setting-label">Bet Size <span id="lbl-bet">$5.00</span></div>
+      <input type="range" id="sl-bet" min="1" max="50" step="1" value="5" oninput="updateLabel('lbl-bet', '$'+this.value+'.00')">
+      <div style="color:var(--muted);font-size:10px;margin-top:4px">Max dollars per trade</div>
+    </div>
+  </div>
+  <button onclick="saveSettings()" style="margin-top:10px;padding:8px 20px;background:var(--purple);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">Save Settings</button>
+</div>
+
+<!-- Trade history -->
+<div class="section">
+  <div class="section-title">Trade History (Paper)</div>
+  <div id="trade-history">
+    <div class="no-trades">No trades yet this session</div>
+  </div>
+</div>
+
+<div class="footer">
+  <span id="uptime-label">Uptime: —</span>
+  <span id="feeds-label">Feeds: —</span>
+</div>
+
+<script>
+let armed = false;
+
+function updateLabel(id, val, suffix) {
+  document.getElementById(id).textContent = val + (suffix || '');
+}
+
+async function toggleArm() {
+  const resp = await fetch('/api/v2/toggle', { method: 'POST' });
+  const data = await resp.json();
+  armed = data.trading_enabled;
+  updateArmBtn();
+}
+
+function updateArmBtn() {
+  const btn  = document.getElementById('arm-btn');
+  const note = document.getElementById('arm-note');
+  if (armed) {
+    btn.textContent = '⏸ DISARM BOT 2.0';
+    btn.className   = 'armed';
+    note.textContent = 'BOT 1.0 is paused while BOT 2.0 is active';
+  } else {
+    btn.textContent = '▶ ARM BOT 2.0';
+    btn.className   = 'disarmed';
+    note.textContent = 'Arming BOT 2.0 will pause BOT 1.0';
+  }
+}
+
+async function saveSettings() {
+  const settings = {
+    entry_window_minutes:   parseFloat(document.getElementById('sl-window').value),
+    min_distance_dollars:   parseFloat(document.getElementById('sl-dist').value),
+    max_entry_yes_cents:    parseInt(document.getElementById('sl-max-yes').value),
+    min_entry_no_yes_cents: parseInt(document.getElementById('sl-min-no').value),
+    max_bet_dollars:        parseFloat(document.getElementById('sl-bet').value),
+  };
+  await fetch('/api/v2/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings)
+  });
+}
+
+function fmt(v, prefix='') {
+  if (v == null) return '—';
+  return prefix + v.toLocaleString();
+}
+function fmtPnl(v) {
+  if (v == null) return '—';
+  const s = (v >= 0 ? '+' : '') + '$' + Math.abs(v).toFixed(2);
+  return s;
+}
+function fmtTime(secs) {
+  if (secs == null) return '—';
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function updateEdge(d) {
+  const dot    = document.getElementById('edge-dot');
+  const label  = document.getElementById('edge-label');
+  const detail = document.getElementById('edge-detail');
+
+  if (!d.trading_enabled) {
+    dot.className = 'edge-dot waiting';
+    label.textContent  = 'WAITING';
+    label.style.color  = 'var(--muted)';
+    detail.textContent = 'Bot is not armed';
+    return;
+  }
+
+  const secs  = d.market?.seconds_left;
+  const dist  = d.prices?.distance_dollars;
+  const minDist = d.settings?.min_distance_dollars || 200;
+  const window  = (d.settings?.entry_window_minutes || 3) * 60;
+  const yes     = d.market?.yes_price_cents;
+  const maxYes  = d.settings?.max_entry_yes_cents || 80;
+  const minNo   = d.settings?.min_entry_no_yes_cents || 20;
+
+  if (secs == null || dist == null) {
+    dot.className = 'edge-dot waiting';
+    label.textContent  = 'WAITING';
+    label.style.color  = 'var(--muted)';
+    detail.textContent = 'Waiting for market data';
+    return;
+  }
+
+  const inWindow     = secs <= window;
+  const farEnough    = Math.abs(dist) >= minDist;
+  const side         = dist > 0 ? 'yes' : 'no';
+  const hasEdge      = inWindow && farEnough && yes != null && (
+    (side === 'yes' && yes <= maxYes) ||
+    (side === 'no'  && yes >= minNo)
+  );
+
+  if (d.traded_this_cycle) {
+    dot.className = 'edge-dot watching';
+    label.textContent  = 'TRADED THIS CYCLE';
+    label.style.color  = 'var(--yellow)';
+    detail.textContent = 'Waiting for next market';
+  } else if (hasEdge) {
+    dot.className = 'edge-dot edge';
+    label.textContent  = '⚡ EDGE DETECTED — ENTERING';
+    label.style.color  = 'var(--green)';
+    detail.textContent = `BTC $${Math.abs(dist).toFixed(0)} ${dist>0?'above':'below'} strike | YES ${yes}¢`;
+  } else if (inWindow && farEnough) {
+    dot.className = 'edge-dot no-edge';
+    label.textContent  = 'IN WINDOW — NO EDGE';
+    label.style.color  = 'var(--red)';
+    detail.textContent = `Market already priced in (YES ${yes}¢)`;
+  } else if (inWindow) {
+    dot.className = 'edge-dot no-edge';
+    label.textContent  = 'IN WINDOW — TOO CLOSE';
+    label.style.color  = 'var(--red)';
+    detail.textContent = `BTC only $${Math.abs(dist).toFixed(0)} from strike (need $${minDist})`;
+  } else {
+    const toWindow = ((secs - window) / 60).toFixed(1);
+    dot.className = 'edge-dot watching';
+    label.textContent  = 'WATCHING';
+    label.style.color  = 'var(--yellow)';
+    detail.textContent = `Entry window opens in ${toWindow}m | BTC $${Math.abs(dist).toFixed(0)} ${dist>0?'above':'below'} strike`;
+  }
+}
+
+function updatePosition(d) {
+  const card = document.getElementById('position-card');
+  if (!d.position) {
+    card.classList.remove('visible');
+    return;
+  }
+  card.classList.add('visible');
+  const p = d.position;
+  document.getElementById('pos-side').textContent      = p.side;
+  document.getElementById('pos-side').style.color      = p.side === 'YES' ? 'var(--green)' : 'var(--red)';
+  document.getElementById('pos-entry').textContent     = p.price_cents + '¢';
+  document.getElementById('pos-contracts').textContent = p.num_contracts + 'x';
+  document.getElementById('pos-cost').textContent      = '$' + p.cost_dollars.toFixed(2);
+  document.getElementById('pos-btc').textContent       = '$' + p.entry_btc.toLocaleString();
+  document.getElementById('pos-strike').textContent    = '$' + p.entry_strike.toLocaleString();
+}
+
+function renderTrades(trades) {
+  const el = document.getElementById('trade-history');
+  if (!trades || trades.length === 0) {
+    el.innerHTML = '<div class="no-trades">No trades yet this session</div>';
+    return;
+  }
+  let html = '<table class="trade-table"><thead><tr><th>Market</th><th>Side</th><th>Entry</th><th>BTC vs Strike</th><th>Outcome</th><th>P&L</th></tr></thead><tbody>';
+  for (const t of trades) {
+    const rowClass = t.outcome === 'win' ? 'win-row' : t.outcome === 'loss' ? 'loss-row' : 'open-row';
+    const outcome  = t.outcome ? t.outcome.toUpperCase() : 'OPEN';
+    const pnl      = t.pnl_dollars != null ? fmtPnl(t.pnl_dollars) : '—';
+    const pnlColor = t.pnl_dollars > 0 ? 'var(--green)' : t.pnl_dollars < 0 ? 'var(--red)' : '';
+    const dist     = t.entry_btc && t.entry_strike ? (t.entry_btc - t.entry_strike).toFixed(0) : '—';
+    const distStr  = dist !== '—' ? `$${Math.abs(dist)} ${dist > 0 ? '▲' : '▼'}` : '—';
+    html += `<tr class="${rowClass}">
+      <td style="font-family:monospace;color:var(--muted)">${t.ticker || '—'}</td>
+      <td style="color:${t.side==='YES'?'var(--green)':'var(--red)'};font-weight:600">${t.side}</td>
+      <td>${t.price_cents}¢ × ${t.num_contracts}</td>
+      <td style="color:var(--muted)">${distStr}</td>
+      <td>${outcome}</td>
+      <td style="color:${pnlColor};font-weight:600">${pnl}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+async function update() {
+  try {
+    const resp = await fetch('/api/v2/state');
+    const d    = await resp.json();
+
+    armed = d.trading_enabled;
+    updateArmBtn();
+
+    // Status
+    document.getElementById('status-text').textContent = d.status || '—';
+
+    // Mode badge
+    const badge = document.getElementById('mode-badge');
+    badge.textContent = d.paper_mode ? '📄 PAPER MODE' : '🔴 LIVE MODE';
+    badge.style.color = d.paper_mode ? 'var(--yellow)' : 'var(--red)';
+
+    // Version
+    document.getElementById('version-label').textContent = 'v' + (d.version || '2.0.0');
+
+    // Metrics
+    const cf = d.prices?.cf_estimate;
+    document.getElementById('btc-price').textContent     = cf ? '$' + cf.toLocaleString(undefined,{maximumFractionDigits:2}) : '—';
+    document.getElementById('strike-price').textContent  = d.market?.floor_strike ? '$' + d.market.floor_strike.toLocaleString() : '—';
+    document.getElementById('market-ticker').textContent = d.market?.ticker || 'No active market';
+
+    const dist = d.prices?.distance_dollars;
+    if (dist != null) {
+      const absDist = Math.abs(dist);
+      const dir     = dist > 0 ? 'above' : 'below';
+      document.getElementById('distance-value').textContent = '$' + absDist.toLocaleString(undefined,{maximumFractionDigits:0});
+      document.getElementById('distance-value').style.color = dist > 0 ? 'var(--green)' : 'var(--red)';
+      document.getElementById('distance-sub').textContent    = dist > 0 ? '▲ BTC above strike' : '▼ BTC below strike';
+    } else {
+      document.getElementById('distance-value').textContent = '—';
+      document.getElementById('distance-sub').textContent   = '—';
+    }
+
+    const secs = d.market?.seconds_left;
+    const timeEl = document.getElementById('time-left');
+    timeEl.textContent = secs != null ? fmtTime(secs) : '—';
+    const ewMins = d.settings?.entry_window_minutes || 3;
+    if (secs != null) {
+      if (secs <= ewMins * 60) {
+        timeEl.style.color = 'var(--red)';
+        document.getElementById('entry-window-status').textContent = '⚡ IN ENTRY WINDOW';
+      } else {
+        timeEl.style.color = 'var(--text)';
+        document.getElementById('entry-window-status').textContent = `Entry window: final ${ewMins}m`;
+      }
+    }
+
+    const yp = d.market?.yes_price_cents;
+    const np = d.market?.no_price_cents;
+    document.getElementById('yes-price').textContent = yp != null ? yp + '¢' : '—';
+    document.getElementById('yes-price').style.color = yp != null ? (yp >= 50 ? 'var(--green)' : 'var(--red)') : 'var(--muted)';
+    document.getElementById('no-price-sub').textContent = np != null ? `NO: ${np}¢` : '—';
+
+    const dpnl = d.account?.daily_pnl;
+    const tpnl = d.account?.total_pnl;
+    const dpEl = document.getElementById('daily-pnl');
+    dpEl.textContent = dpnl != null ? fmtPnl(dpnl) : '$0.00';
+    dpEl.style.color = dpnl > 0 ? 'var(--green)' : dpnl < 0 ? 'var(--red)' : 'var(--text)';
+    document.getElementById('total-pnl-sub').textContent = 'Total: ' + (tpnl != null ? fmtPnl(tpnl) : '$0.00');
+
+    // Edge indicator
+    updateEdge(d);
+
+    // Position
+    updatePosition(d);
+
+    // Stats
+    document.getElementById('stat-wins').textContent   = d.account?.wins || 0;
+    document.getElementById('stat-losses').textContent = d.account?.losses || 0;
+    document.getElementById('stat-wr').textContent     = d.account?.win_rate ? d.account.win_rate + '%' : '—';
+    const pnlEl = document.getElementById('stat-pnl');
+    pnlEl.textContent = tpnl != null ? fmtPnl(tpnl) : '$0.00';
+    pnlEl.style.color = tpnl > 0 ? 'var(--green)' : tpnl < 0 ? 'var(--red)' : 'var(--text)';
+
+    // Settings sliders (sync from server)
+    const s = d.settings || {};
+    if (s.entry_window_minutes != null) { document.getElementById('sl-window').value = s.entry_window_minutes; document.getElementById('lbl-window').textContent = s.entry_window_minutes + ' min'; }
+    if (s.min_distance_dollars != null) { document.getElementById('sl-dist').value = s.min_distance_dollars; document.getElementById('lbl-dist').textContent = '$' + s.min_distance_dollars; }
+    if (s.max_entry_yes_cents  != null) { document.getElementById('sl-max-yes').value = s.max_entry_yes_cents; document.getElementById('lbl-max-yes').textContent = s.max_entry_yes_cents + '¢'; }
+    if (s.min_entry_no_yes_cents != null) { document.getElementById('sl-min-no').value = s.min_entry_no_yes_cents; document.getElementById('lbl-min-no').textContent = s.min_entry_no_yes_cents + '¢'; }
+    if (s.max_bet_dollars != null) { document.getElementById('sl-bet').value = s.max_bet_dollars; document.getElementById('lbl-bet').textContent = '$' + s.max_bet_dollars + '.00'; }
+
+    // Trades
+    renderTrades(d.trades);
+
+    // Footer
+    document.getElementById('uptime-label').textContent  = 'Uptime: ' + (d.uptime || '—');
+    document.getElementById('feeds-label').textContent   = 'Feeds: ' + (d.prices?.feeds_connected ? 'Connected' : 'Disconnected');
+
+  } catch(e) {
+    document.getElementById('status-text').textContent = 'Connection error — retrying...';
+  }
+}
+
+update();
+setInterval(update, 3000);
+</script>
+</body>
+</html>

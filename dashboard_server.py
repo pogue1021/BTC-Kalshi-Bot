@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 from bot_state import state
+from bot_state_v2 import state_v2
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
@@ -100,8 +101,9 @@ def _persist_settings_to_config(new_vals: dict):
     except Exception as e:
         _persist_logger.warning(f"Could not persist settings to config.yaml: {e}")
 
-DASHBOARD_PORT = 5000
-DASHBOARD_HTML = Path(__file__).parent / "dashboard.html"
+DASHBOARD_PORT   = 5000
+DASHBOARD_HTML   = Path(__file__).parent / "dashboard.html"
+DASHBOARD_V2_HTML = Path(__file__).parent / "dashboard_v2.html"
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -111,6 +113,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_json()
         elif self.path == "/" or self.path == "/dashboard":
             self._serve_html()
+        elif self.path == "/v2":
+            self._serve_v2_html()
+        elif self.path == "/api/v2/state":
+            self._serve_v2_json()
         else:
             self.send_response(404)
             self.end_headers()
@@ -122,6 +128,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._handle_toggle()
         elif self.path == "/api/toggle_paper":
             self._handle_toggle_paper()
+        elif self.path == "/api/v2/toggle":
+            self._handle_v2_toggle()
+        elif self.path == "/api/v2/toggle_paper":
+            self._handle_v2_toggle_paper()
+        elif self.path == "/api/v2/settings":
+            self._handle_v2_settings_update()
         else:
             self.send_response(404)
             self.end_headers()
@@ -189,6 +201,93 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(err)))
             self.end_headers()
             self.wfile.write(err)
+
+    # ── BOT 2.0 handlers ──────────────────────────────────────────────────────
+
+    def _handle_v2_toggle(self):
+        """Arm / disarm BOT 2.0. Arming automatically disarms V1."""
+        new_state = not state_v2.trading_enabled
+        state_v2.trading_enabled = new_state
+        if new_state:
+            # One-at-a-time: disarm V1 when V2 is armed
+            state.trading_enabled = False
+            state.status = "Paused — BOT 2.0 is active"
+            state_v2.status = "ARMED — watching for late-window edge"
+        else:
+            state_v2.status = "Disarmed — press ARM to start"
+        resp = json.dumps({
+            "ok": True,
+            "trading_enabled": state_v2.trading_enabled,
+        }).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(resp)))
+        self.end_headers()
+        self.wfile.write(resp)
+
+    def _handle_v2_toggle_paper(self):
+        """Flip PAPER/LIVE for BOT 2.0. Always force-disarms on switch."""
+        state_v2.paper_mode      = not state_v2.paper_mode
+        state_v2.trading_enabled = False
+        mode_str = "PAPER" if state_v2.paper_mode else "LIVE"
+        state_v2.status = f"Switched to {mode_str} MODE — re-arm to continue"
+        resp = json.dumps({
+            "ok": True,
+            "paper_mode":      state_v2.paper_mode,
+            "trading_enabled": state_v2.trading_enabled,
+        }).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(resp)))
+        self.end_headers()
+        self.wfile.write(resp)
+
+    def _handle_v2_settings_update(self):
+        try:
+            length   = int(self.headers.get("Content-Length", 0))
+            raw      = self.rfile.read(length)
+            new_vals = json.loads(raw.decode("utf-8"))
+            state_v2.settings.update_from_dict(new_vals)
+            resp = json.dumps({"ok": True, "settings": state_v2.settings.to_dict()}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+        except Exception as e:
+            err = json.dumps({"ok": False, "error": str(e)}).encode("utf-8")
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(err)))
+            self.end_headers()
+            self.wfile.write(err)
+
+    def _serve_v2_json(self):
+        data = json.dumps(state_v2.to_dict()).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_v2_html(self):
+        if not DASHBOARD_V2_HTML.exists():
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"dashboard_v2.html not found")
+            return
+        html = DASHBOARD_V2_HTML.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(html)))
+        self.end_headers()
+        self.wfile.write(html)
+
+    # ── V1 JSON / HTML ────────────────────────────────────────────────────────
 
     def _serve_json(self):
         data = json.dumps(state.to_dict()).encode("utf-8")
