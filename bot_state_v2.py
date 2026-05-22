@@ -18,7 +18,7 @@ class V2Settings:
     """Tuneable parameters for the late-window strategy."""
 
     # Only look for entries in the final N minutes of each cycle
-    entry_window_minutes: float = 3.0
+    entry_window_minutes: float = 5.0
 
     # BTC must be at least this many dollars from the strike price.
     # At $75 distance with 3 min left, YES should be ~85c — if Kalshi

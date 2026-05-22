@@ -202,12 +202,12 @@
   <div class="settings-grid">
     <div class="setting-row">
       <div class="setting-label">Entry Window <span id="lbl-window">3.0 min</span></div>
-      <input type="range" id="sl-window" min="1" max="6" step="0.5" value="3.0" oninput="updateLabel('lbl-window', this.value, ' min')">
+      <input type="range" id="sl-window" min="1" max="6" step="0.5" value="5.0" oninput="updateLabel('lbl-window', this.value, ' min')">
       <div style="color:var(--muted);font-size:10px;margin-top:4px">Only enter in final N minutes of cycle</div>
     </div>
     <div class="setting-row">
       <div class="setting-label">Min Distance <span id="lbl-dist">$200</span></div>
-      <input type="range" id="sl-dist" min="50" max="600" step="25" value="200" oninput="updateLabel('lbl-dist', '$'+this.value)">
+      <input type="range" id="sl-dist" min="50" max="600" step="25" value="75" oninput="updateLabel('lbl-dist', '$'+this.value)">
       <div style="color:var(--muted);font-size:10px;margin-top:4px">BTC must be this far from strike</div>
     </div>
     <div class="setting-row">
@@ -244,10 +244,19 @@
 
 <script>
 let armed = false;
+let slidersDirty = false;  // true while user has unsaved slider changes
 
 function updateLabel(id, val, suffix) {
   document.getElementById(id).textContent = val + (suffix || '');
 }
+
+// Mark sliders dirty when the user touches any of them
+document.addEventListener('DOMContentLoaded', () => {
+  ['sl-window','sl-dist','sl-max-yes','sl-min-no','sl-bet'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => { slidersDirty = true; });
+  });
+});
 
 async function toggleArm() {
   const resp = await fetch('/api/v2/toggle', { method: 'POST' });
@@ -278,11 +287,23 @@ async function saveSettings() {
     min_entry_no_yes_cents: parseInt(document.getElementById('sl-min-no').value),
     max_bet_dollars:        parseFloat(document.getElementById('sl-bet').value),
   };
-  await fetch('/api/v2/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings)
-  });
+  try {
+    const res = await fetch('/api/v2/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+    if (res.ok) {
+      slidersDirty = false;
+      const btn = document.querySelector('button[onclick="saveSettings()"]');
+      if (btn) {
+        const orig = btn.textContent;
+        btn.textContent = 'Saved ✓';
+        btn.style.background = 'var(--green, #30d158)';
+        setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 2000);
+      }
+    }
+  } catch(e) { alert('Save failed: ' + e); }
 }
 
 function fmt(v, prefix='') {
@@ -489,13 +510,15 @@ async function update() {
     pnlEl.textContent = tpnl != null ? fmtPnl(tpnl) : '$0.00';
     pnlEl.style.color = tpnl > 0 ? 'var(--green)' : tpnl < 0 ? 'var(--red)' : 'var(--text)';
 
-    // Settings sliders (sync from server)
-    const s = d.settings || {};
-    if (s.entry_window_minutes != null) { document.getElementById('sl-window').value = s.entry_window_minutes; document.getElementById('lbl-window').textContent = s.entry_window_minutes + ' min'; }
-    if (s.min_distance_dollars != null) { document.getElementById('sl-dist').value = s.min_distance_dollars; document.getElementById('lbl-dist').textContent = '$' + s.min_distance_dollars; }
-    if (s.max_entry_yes_cents  != null) { document.getElementById('sl-max-yes').value = s.max_entry_yes_cents; document.getElementById('lbl-max-yes').textContent = s.max_entry_yes_cents + '¢'; }
-    if (s.min_entry_no_yes_cents != null) { document.getElementById('sl-min-no').value = s.min_entry_no_yes_cents; document.getElementById('lbl-min-no').textContent = s.min_entry_no_yes_cents + '¢'; }
-    if (s.max_bet_dollars != null) { document.getElementById('sl-bet').value = s.max_bet_dollars; document.getElementById('lbl-bet').textContent = '$' + s.max_bet_dollars + '.00'; }
+    // Settings sliders — only sync from server if user hasn't touched them
+    if (!slidersDirty) {
+      const s = d.settings || {};
+      if (s.entry_window_minutes  != null) { document.getElementById('sl-window').value = s.entry_window_minutes;   document.getElementById('lbl-window').textContent  = s.entry_window_minutes + ' min'; }
+      if (s.min_distance_dollars  != null) { document.getElementById('sl-dist').value   = s.min_distance_dollars;   document.getElementById('lbl-dist').textContent    = '$' + s.min_distance_dollars; }
+      if (s.max_entry_yes_cents   != null) { document.getElementById('sl-max-yes').value = s.max_entry_yes_cents;   document.getElementById('lbl-max-yes').textContent  = s.max_entry_yes_cents + '¢'; }
+      if (s.min_entry_no_yes_cents!= null) { document.getElementById('sl-min-no').value = s.min_entry_no_yes_cents; document.getElementById('lbl-min-no').textContent   = s.min_entry_no_yes_cents + '¢'; }
+      if (s.max_bet_dollars       != null) { document.getElementById('sl-bet').value    = s.max_bet_dollars;        document.getElementById('lbl-bet').textContent     = '$' + s.max_bet_dollars + '.00'; }
+    }
 
     // Trades
     renderTrades(d.trades);
