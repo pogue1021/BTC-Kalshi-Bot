@@ -91,13 +91,12 @@ def _cancel_stale_quotes(ticker: str, kalshi_client, prices: dict,
     for o in orders:
         if o["side"] == "yes":
             target = yes_bid + inside_cents
-            if abs(o["price_cents"] - target) > inside_cents + 1:
+            if abs(o["price_cents"] - target) > inside_cents + 3:
                 stale_ids.add(o["order_id"])
         elif o["side"] == "no":
-            # Our NO price → YES equivalent
             our_yes_equiv = 100 - o["price_cents"]
             target_yes_ask = yes_ask - inside_cents
-            if abs(our_yes_equiv - target_yes_ask) > inside_cents + 1:
+            if abs(our_yes_equiv - target_yes_ask) > inside_cents + 3:
                 stale_ids.add(o["order_id"])
 
     if not stale_ids:
@@ -199,7 +198,7 @@ def _detect_fills_paper(ticker: str, prices: dict) -> List[dict]:
 
     for o in our_resting:
         age = now - o.get("placed_at", now)
-        if age < 30:
+        if age < 10:
             still_resting.append(o)
             continue
 
