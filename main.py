@@ -876,10 +876,13 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                 continue
 
             # ── Side price eligibility ────────────────────────────────────────
-            # The signal direction is now known. Confirm that the chosen side's
-            # price is actually within the tradeable range — guards against CF
-            # picking YES when YES is a 28c longshot, or NO when NO is tiny.
-            chosen_price = yes_ask if signal_result.signal == Signal.YES else no_ask
+            # Check the maker bid price (bid+1) not the ask — we'll enter as a
+            # maker so we pay the bid side, not the ask side.
+            chosen_price = (
+                min(yes_bid + 1, yes_ask - 1) if signal_result.signal == Signal.YES
+                else min(no_bid + 1, no_ask - 1)
+            )
+            chosen_price = max(1, chosen_price)
             if (chosen_price < state.settings.min_yes_price_cents or
                     chosen_price > state.settings.max_yes_price_cents):
                 reason = (
@@ -901,9 +904,13 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                 await asyncio.sleep(10)
                 continue
 
-            # ── Pick side and price ───────────────────────────────────────────
+            # ── Pick side and price (maker: bid+1, not ask) ───────────────────
             side        = "yes" if signal_result.signal == Signal.YES else "no"
-            price_cents = yes_ask if side == "yes" else no_ask
+            price_cents = (
+                min(yes_bid + 1, yes_ask - 1) if side == "yes"
+                else min(no_bid + 1, no_ask - 1)
+            )
+            price_cents = max(1, price_cents)
 
             if price_cents <= 0:
                 await asyncio.sleep(5)
@@ -924,6 +931,7 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                     ticker=ticker, side=side,
                     price_cents=price_cents, num_contracts=num_contracts,
                     paper_mode=state.paper_mode,
+                    maker=True,
                 )
                 # Consume the trade slot immediately after place_order returns.
                 # If anything below throws, the slot is already used so the bot

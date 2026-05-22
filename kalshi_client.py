@@ -372,6 +372,7 @@ class KalshiClient:
         price_cents: int,    # price you're willing to pay (0-100)
         num_contracts: int,  # number of contracts (each contract = $1 max payout)
         paper_mode: bool = True,
+        maker: bool = True,  # True = post at bid (maker, lower fees); False = cross spread (taker)
     ) -> dict:
         """
         Places a limit order on Kalshi.
@@ -414,21 +415,27 @@ class KalshiClient:
                 }
             }
 
-        # Live order placement.
-        # Cross the spread by `cross_spread_buffer_cents` to lock in fills:
-        # bid 1c above the displayed ask (in our side's terms). The matching
-        # engine still typically fills us AT the resting ask price — the
-        # buffer is "willingness to pay slightly more" not "extra cost".
-        # Without this buffer, a 1c upward tick between read and place leaves
-        # the order resting on the book.
-        buffered_buy_price = max(1, min(99, price_cents + self.cross_spread_buffer_cents))
-        # Kalshi uses yes_price for both sides (no_price = 100 - yes_price)
-        yes_price = buffered_buy_price if side == "yes" else (100 - buffered_buy_price)
-        if buffered_buy_price != price_cents:
+        if maker:
+            # Maker order: post at exactly price_cents — no spread crossing.
+            # Order rests on the book at the best bid. Kalshi charges 4x lower
+            # maker fees vs taker fees. Grace period is longer since the order
+            # waits for a taker to cross rather than filling immediately.
+            final_price = max(1, min(99, price_cents))
+            grace_secs  = 20.0
             logger.info(
-                f"Crossing spread: bidding {buffered_buy_price}c on {side.upper()} "
-                f"(was {price_cents}c) — buffer={self.cross_spread_buffer_cents}c"
+                f"Maker bid: {final_price}c on {side.upper()} — resting at best bid"
             )
+        else:
+            # Taker order: cross the spread to guarantee immediate fill.
+            final_price = max(1, min(99, price_cents + self.cross_spread_buffer_cents))
+            grace_secs  = 8.0
+            if final_price != price_cents:
+                logger.info(
+                    f"Crossing spread: bidding {final_price}c on {side.upper()} "
+                    f"(was {price_cents}c) — buffer={self.cross_spread_buffer_cents}c"
+                )
+
+        yes_price = final_price if side == "yes" else (100 - final_price)
 
         body = {
             "ticker":          ticker,
@@ -446,13 +453,10 @@ class KalshiClient:
             logger.error(f"Order failed: {e.response.status_code} — {e.response.text}")
             raise
 
-        # Verify the order actually filled before letting the caller record a
-        # trade. Includes a 2s grace period for orders that fill a beat after
-        # acceptance — we don't want to cancel those prematurely. If still
-        # unfilled after the grace, it's canceled and OrderNotFilledError raised.
         return self._verify_fill_or_cancel(
             response,
             context=f"buy {side.upper()} {num_contracts}x @ {price_cents}c on {ticker}",
+            grace_secs=grace_secs,
         )
 
     def sell_position(
