@@ -416,6 +416,11 @@ async def _process_market(ticker: str, close_time: str, kalshi_client) -> dict:
         info["yes_ask"] = yes_ask
         info["spread"]  = spread
 
+        # ── Guard: no book yet (market just opened or between cycles) ─────
+        if yes_bid == 0 or yes_ask == 0:
+            info["skip_reason"] = "No prices yet — market just opened"
+            return info
+
         # ── Gate: daily loss limit ────────────────────────────────────────
         if state_mm.daily_pnl_dollars <= -cfg.max_daily_loss:
             _cancel_all_quotes(ticker, kalshi_client, paper_mode)
