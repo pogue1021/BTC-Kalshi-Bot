@@ -209,14 +209,14 @@
 
     <div class="setting-row">
       <div class="setting-label">Quote inside spread <span id="lbl-inside">2¢</span></div>
-      <input type="range" id="sl-inside" min="1" max="5" step="1" value="2"
+      <input type="range" id="sl-inside" min="1" max="5" step="1" value="1"
         oninput="slidersDirty=true; document.getElementById('lbl-inside').textContent=this.value+'¢'">
       <div class="setting-hint">Post this far inside the natural bid/ask</div>
     </div>
 
     <div class="setting-row">
       <div class="setting-label">Min natural spread <span id="lbl-min-spread">4¢</span></div>
-      <input type="range" id="sl-min-spread" min="2" max="10" step="1" value="5"
+      <input type="range" id="sl-min-spread" min="2" max="10" step="1" value="3"
         oninput="slidersDirty=true; document.getElementById('lbl-min-spread').textContent=this.value+'¢'">
       <div class="setting-hint">Skip quoting if spread is tighter than this</div>
     </div>
