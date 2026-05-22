@@ -68,11 +68,11 @@ signal:
 
   # Market price filter - avoid markets that are almost certainly going one way
   min_yes_price_cents: 39  # Don't bet if market prices YES below 40c (long shots lose consistently)
-  max_yes_price_cents: 69  # Max entry where upside-to-TP (89c) >= hard stop (20c): 89-20=69
+  max_yes_price_cents: 82  # Data shows 75-100c is 73% wins +$15.60; real dead zone is 55-65c
 
   # Stop-loss, take-profit, and re-entry
   stop_loss_cents: 23  # Legacy price-based stop (kept for backward compat; used when signal_stop_enabled=false)
-  take_profit_cents: 89  # Bank the gain early when position reaches this price (85-99c)
+  take_profit_cents: 95  # Let winners run — settlement wins avg $13.42 vs TP at 89c avg $3.93
   sl_min_hold_secs: 15  # Stop-loss can't fire within this many seconds of entry (prevents noise exits)
   sl_disable_mins: 3.0              # LEGACY: original single SL disable timer — kept as fallback default for signal_sl_disable_mins
 
@@ -136,7 +136,7 @@ signal:
   late_window_fallback_enabled:  true
   late_window_fallback_minutes:  2.0   # Fires only in final N minutes before close
   late_window_min_distance_pct: 0.06  # CF must be >= this % from strike (~$38 on $76k BTC)
-  late_window_max_yes_cents: 69  # Match max_yes_price_cents
+  late_window_max_yes_cents: 82  # Match max_yes_price_cents
 
 # ----------------------------------------------------------
 # REMOTE KILL SWITCH (optional, opt-in)
