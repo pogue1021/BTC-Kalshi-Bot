@@ -18,7 +18,7 @@ class MMSettings:
     quote_yes_threshold: int     = 85    # quote when YES price is above this
     quote_no_threshold: int      = 15    # quote when YES price is below this
     quote_inside_cents: int      = 2     # post this many cents inside the spread
-    min_market_spread_cents: int = 4     # skip if natural spread is tighter
+    min_market_spread_cents: int = 5     # skip if natural spread is tighter (need 2*inside+1 min)
     min_seconds_remaining: int   = 90    # pull all quotes under this many seconds
     max_inventory_contracts: int = 15    # skew quotes when net position exceeds this
     hard_inventory_limit: int    = 25    # pull all quotes when net position exceeds this

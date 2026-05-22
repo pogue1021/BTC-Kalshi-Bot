@@ -175,13 +175,17 @@ def _detect_fills_live(ticker: str, kalshi_client) -> List[dict]:
 
 def _detect_fills_paper(ticker: str, prices: dict) -> List[dict]:
     """
-    Paper-mode simulation: an order fills after 30 seconds if the market
-    price has not moved away from our posted price.
+    Paper-mode fill simulation. After 30 seconds, an order fills if the
+    market price hasn't moved more than 3c AGAINST our quote.
 
-    YES bid fills when the market ask is at or below our bid price
-    (someone willing to sell at our price).
-    NO bid (YES ask) fills when the market bid is at or above our YES-equivalent
-    (someone willing to buy at our ask).
+    As a market maker we post inside the spread, meaning we ARE the best
+    bid/ask. Takers cross us — the market price doesn't need to come to us.
+    The 3c tolerance lets the simulation correctly capture fills in the YES
+    zone (prices moving toward 100c) and NO zone (prices toward 0c) where
+    the market moves WITH us, not against us.
+
+    A quote is abandoned (stays resting) only if the market moved sharply
+    the wrong way, making our price uncompetitive by more than 3c.
     """
     our_resting = state_mm.resting_orders.get(ticker, [])
     if not our_resting:
@@ -190,6 +194,7 @@ def _detect_fills_paper(ticker: str, prices: dict) -> List[dict]:
     yes_bid = prices.get("yes_bid", 0)
     yes_ask = prices.get("yes_ask", 0)
     now     = time.time()
+    tolerance = 3   # cents — market can move this far against us and still fill
     filled, still_resting = [], []
 
     for o in our_resting:
@@ -199,15 +204,17 @@ def _detect_fills_paper(ticker: str, prices: dict) -> List[dict]:
             continue
 
         if o["side"] == "yes":
-            # YES buy fills if market ask <= our bid (we can cross)
-            if yes_ask <= o["price_cents"]:
+            # YES bid at X: fill if market hasn't dropped more than `tolerance`c
+            # below our bid (i.e., we're still competitive / were crossed)
+            if yes_bid >= o["price_cents"] - tolerance:
                 filled.append(o)
             else:
                 still_resting.append(o)
         else:  # "no"
-            # NO buy = YES sell; fills if market bid >= our YES equivalent
+            # NO bid (YES ask at Y): fill if market hasn't risen more than
+            # `tolerance`c above our YES-equivalent ask
             our_yes_equiv = 100 - o["price_cents"]
-            if yes_bid >= our_yes_equiv:
+            if yes_ask <= our_yes_equiv + tolerance:
                 filled.append(o)
             else:
                 still_resting.append(o)
