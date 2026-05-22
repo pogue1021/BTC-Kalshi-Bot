@@ -65,13 +65,15 @@ async def v2_trading_loop(price_store, kalshi_client):
 
             # ── New cycle detection ───────────────────────────────────────
             if ticker != current_ticker:
-                if settlement_task and not settlement_task.done():
-                    settlement_task.cancel()
+                # Do NOT cancel settlement_task here — it must keep running
+                # across cycle boundaries so it can record the result when
+                # the previous market actually settles. Dropping the reference
+                # is enough; asyncio tasks run until done or explicitly cancelled.
                 logger.info(f"BOT 2.0: New market {ticker} | {seconds_left/60:.1f} min left | strike ${floor_strike:,.0f}")
-                current_ticker          = ticker
+                current_ticker             = ticker
                 state_v2.traded_this_cycle = False
-                state_v2.current_trade  = None
-                settlement_task         = None
+                state_v2.current_trade     = None
+                settlement_task            = None
 
             # Update dashboard state
             state_v2.current_market      = ticker
