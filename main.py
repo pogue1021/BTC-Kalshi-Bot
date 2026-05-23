@@ -87,6 +87,8 @@ def load_config(path: str = "config.yaml") -> dict:
     except (ValueError, TypeError):
         telegram["chat_id"] = 0
 
+    return config
+
 
 def _seed_settings_from_config(config: dict):
     """Seed state.settings from config.yaml so the dashboard shows correct values on startup."""
