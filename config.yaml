@@ -51,7 +51,7 @@ signal:
   # CF estimate momentum strategy:
   # When the CF Benchmarks real-time estimate (weighted median of Coinbase/Kraken/Bitstamp/Gemini)
   # is trending strongly, bet that Kalshi's market will follow.
-  momentum_threshold_pct: 0.025  # Minimum CF momentum % to trigger a bet (0.025 = 0.025%)
+  momentum_threshold_pct: 0.020  # Minimum CF momentum % to trigger a bet — backtest: 0.015 best, 0.020 safer
                                     # Lower = more signals but noisier; higher = fewer but cleaner
                                     # Sweet spot between 0.02 (noisy) and 0.03 (slow)
   momentum_window_seconds: 20  # Look at CF price change over this many seconds (30s = cleaner signal)
@@ -99,7 +99,7 @@ signal:
   #   - Kalshi YES price is still reasonable (not already at 90c)
   #   - Momentum is confirming the direction
   early_entry_window_minutes: 10  # How far out to watch for early opportunities
-  early_min_distance_pct: 0.06  # CF must be >= this % from target to enter early (~$46 on $76k BTC)
+  early_min_distance_pct: 0.07  # CF must be >= this % from target to enter early (~$53 on $76k BTC)
   early_max_yes_cents: 55  # Skip early entry if YES already above this (market caught up)
 
   # ──────────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ signal:
   # To DISABLE and revert to prior behavior: set late_window_fallback_enabled: false
   late_window_fallback_enabled:  true
   late_window_fallback_minutes:  2.0   # Fires only in final N minutes before close
-  late_window_min_distance_pct: 0.06  # CF must be >= this % from strike (~$38 on $76k BTC)
+  late_window_min_distance_pct: 0.03  # CF must be >= this % from strike (~$23 on $76k BTC)
   late_window_max_yes_cents: 82  # Match max_yes_price_cents
 
 # ----------------------------------------------------------
