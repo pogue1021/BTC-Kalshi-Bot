@@ -87,6 +87,44 @@ def load_config(path: str = "config.yaml") -> dict:
     except (ValueError, TypeError):
         telegram["chat_id"] = 0
 
+
+def _seed_settings_from_config(config: dict):
+    """Seed state.settings from config.yaml so the dashboard shows correct values on startup."""
+    sig = config.get("signal", {})
+    trd = config.get("trading", {})
+    s   = state.settings
+    state.settings.update_from_dict({
+        "trade_window_start_minutes":   sig.get("trade_window_start_minutes",   s.trade_window_start_minutes),
+        "trade_window_end_minutes":     sig.get("trade_window_end_minutes",     s.trade_window_end_minutes),
+        "momentum_threshold_pct":       sig.get("momentum_threshold_pct",       s.momentum_threshold_pct),
+        "momentum_window_secs":         sig.get("momentum_window_seconds",      s.momentum_window_secs),
+        "min_yes_price_cents":          sig.get("min_yes_price_cents",          s.min_yes_price_cents),
+        "max_yes_price_cents":          sig.get("max_yes_price_cents",          s.max_yes_price_cents),
+        "stop_loss_cents":              sig.get("stop_loss_cents",              s.stop_loss_cents),
+        "take_profit_cents":            sig.get("take_profit_cents",            s.take_profit_cents),
+        "sl_min_hold_secs":             sig.get("sl_min_hold_secs",             s.sl_min_hold_secs),
+        "sl_disable_mins":              sig.get("sl_disable_mins",              s.sl_disable_mins),
+        "signal_sl_disable_mins":       sig.get("signal_sl_disable_mins",      s.signal_sl_disable_mins),
+        "price_sl_disable_mins":        sig.get("price_sl_disable_mins",       s.price_sl_disable_mins),
+        "max_trades_per_cycle":         sig.get("max_trades_per_cycle",         s.max_trades_per_cycle),
+        "signal_stop_enabled":          sig.get("signal_stop_enabled",          s.signal_stop_enabled),
+        "signal_stop_persistence_secs": sig.get("signal_stop_persistence_secs", s.signal_stop_persistence_secs),
+        "stop_loss_fallback_cents":     sig.get("stop_loss_fallback_cents",     s.stop_loss_fallback_cents),
+        "early_entry_window_minutes":   sig.get("early_entry_window_minutes",   s.early_entry_window_minutes),
+        "early_min_distance_pct":       sig.get("early_min_distance_pct",       s.early_min_distance_pct),
+        "early_max_yes_cents":          sig.get("early_max_yes_cents",          s.early_max_yes_cents),
+        "late_window_fallback_enabled": sig.get("late_window_fallback_enabled", s.late_window_fallback_enabled),
+        "late_window_fallback_minutes": sig.get("late_window_fallback_minutes", s.late_window_fallback_minutes),
+        "late_window_min_distance_pct": sig.get("late_window_min_distance_pct", s.late_window_min_distance_pct),
+        "late_window_max_yes_cents":    sig.get("late_window_max_yes_cents",    s.late_window_max_yes_cents),
+        "max_wrong_side_distance_pct":  sig.get("max_wrong_side_distance_pct",  s.max_wrong_side_distance_pct),
+        "min_confidence_pct":           sig.get("min_confidence_pct",           s.min_confidence_pct),
+        "sl_cooldown_secs":             sig.get("sl_cooldown_secs",             s.sl_cooldown_secs),
+        "max_bet_dollars":              trd.get("max_bet_dollars",              s.max_bet_dollars),
+        "max_daily_loss":               trd.get("max_daily_loss",               s.max_daily_loss),
+        "min_daily_profit_lock":        trd.get("min_daily_profit_lock",        s.min_daily_profit_lock),
+    })
+
     return config
 
 
@@ -1045,7 +1083,8 @@ async def main():
         return "\n".join(lines)
     start_telegram_kill_switch(config, apply_fn=_apply_assessment_settings)
 
-    # Set initial dashboard state
+    # Seed live settings from config so the dashboard shows correct values on startup
+    _seed_settings_from_config(config)
     state.paper_mode = paper_mode
     state.status     = "Starting up..."
 
@@ -1168,6 +1207,8 @@ async def main_no_browser():
         return "\n".join(lines)
     start_telegram_kill_switch(config, apply_fn=_apply_assessment_settings)
 
+    # Seed live settings from config so the dashboard shows correct values on startup
+    _seed_settings_from_config(config)
     state.paper_mode = paper_mode
     state.status     = "Starting up..."
 

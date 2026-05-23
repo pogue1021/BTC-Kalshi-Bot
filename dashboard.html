@@ -602,6 +602,34 @@
     }
     #settings-status.visible { opacity: 1; }
 
+    /* Core settings — 4-column grid, always visible */
+    .settings-core {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px 28px;
+      margin-bottom: 4px;
+    }
+    @media (max-width: 900px) { .settings-core { grid-template-columns: repeat(2, 1fr); } }
+
+    /* Advanced toggle button */
+    .advanced-toggle {
+      width: 100%; background: none;
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 16px; margin-top: 12px;
+      color: var(--text2); font-size: 12px; font-weight: 600;
+      font-family: inherit; cursor: pointer;
+      display: flex; align-items: center; gap: 8px;
+      transition: background 0.15s, color 0.15s; letter-spacing: 0.03em;
+      text-align: left;
+    }
+    .advanced-toggle:hover { background: var(--bg3); color: var(--text); }
+    .adv-chevron { display: inline-block; transition: transform 0.2s; }
+    .advanced-toggle.open .adv-chevron { transform: rotate(90deg); }
+    .advanced-panel {
+      margin-top: 20px; padding-top: 20px;
+      border-top: 1px solid var(--border);
+    }
+
     /* ══ Status bar ══ */
     /* ══ Market assessment panel ══ */
     #assessment-panel {
@@ -921,248 +949,261 @@
   <!-- Settings Panel -->
   <div class="card grid-full">
     <div class="card-title">Bot Settings — adjust live, no restart needed</div>
-    <div class="settings-grid">
 
-      <!-- Timing -->
-      <div class="settings-group">
-        <div class="settings-group-title">Trade Timing</div>
+    <!-- Core settings — always visible -->
+    <div class="settings-core">
 
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Early entry window opens</span>
-            <span class="setting-value-display" id="val-early"></span>
-          </div>
-          <input type="range" id="sl-early" min="2" max="14" step="0.5"
-            oninput="document.getElementById('val-early').textContent = this.value + ' min'">
-          <div class="range-bounds"><span>2 min</span><span>14 min</span></div>
-          <div class="setting-hint">Earliest the bot will consider a trade. Strict criteria apply: CF far from strike, momentum confirming, YES below early-max.</div>
+      <div class="setting-row">
+        <div class="setting-label">
+          <span>Momentum threshold</span>
+          <span class="setting-value-display" id="val-mom"></span>
         </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Regular window opens</span>
-            <span class="setting-value-display" id="val-start"></span>
-          </div>
-          <input type="range" id="sl-start" min="1" max="12" step="0.5"
-            oninput="document.getElementById('val-start').textContent = this.value + ' min'">
-          <div class="range-bounds"><span>1 min (aggressive)</span><span>12 min (early)</span></div>
-          <div class="setting-hint">Normal trade criteria apply below this. Set lower than the early entry slider.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Stop entering before close</span>
-            <span class="setting-value-display" id="val-end"></span>
-          </div>
-          <input type="range" id="sl-end" min="0" max="5" step="0.5"
-            oninput="document.getElementById('val-end').textContent = this.value + ' min'">
-          <div class="range-bounds"><span>0 (right up to close)</span><span>5 min early</span></div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Early entry: max YES price</span>
-            <span class="setting-value-display" id="val-emax"></span>
-          </div>
-          <input type="range" id="sl-emax" min="50" max="90" step="1"
-            oninput="document.getElementById('val-emax').textContent = this.value + 'c'">
-          <div class="range-bounds"><span>50c (strict)</span><span>90c (loose)</span></div>
-          <div class="setting-hint">Skip early entries if YES is already above this. Lower = wait for better price.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Early entry: min CF distance</span>
-            <span class="setting-value-display" id="val-edist"></span>
-          </div>
-          <input type="range" id="sl-edist" min="0.03" max="0.25" step="0.01"
-            oninput="document.getElementById('val-edist').textContent = parseFloat(this.value).toFixed(2) + '%'">
-          <div class="range-bounds"><span>0.03% (loose)</span><span>0.25% (strict)</span></div>
-          <div class="setting-hint">How far CF must be from strike to trigger early entry. 0.10% ≈ $75 on $75k BTC.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Late fallback: min CF distance</span>
-            <span class="setting-value-display" id="val-ldist"></span>
-          </div>
-          <input type="range" id="sl-ldist" min="0.01" max="0.15" step="0.01"
-            oninput="document.getElementById('val-ldist').textContent = parseFloat(this.value).toFixed(2) + '%'">
-          <div class="range-bounds"><span>0.01% (loose)</span><span>0.15% (strict)</span></div>
-          <div class="setting-hint">In final minutes, take the obvious side without momentum if CF is at least this far from strike.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Wrong-side max distance</span>
-            <span class="setting-value-display" id="val-wrong"></span>
-          </div>
-          <input type="range" id="sl-wrong" min="0" max="0.10" step="0.005"
-            oninput="document.getElementById('val-wrong').textContent = parseFloat(this.value).toFixed(3) + '%'">
-          <div class="range-bounds"><span>0% (no wrong-side)</span><span>0.10% (anything goes)</span></div>
-          <div class="setting-hint">Caps how far over the strike line CF can be for a "near target" momentum entry. 0.025% ≈ $19.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Late fallback: max YES price</span>
-            <span class="setting-value-display" id="val-lmax"></span>
-          </div>
-          <input type="range" id="sl-lmax" min="55" max="90" step="1"
-            oninput="document.getElementById('val-lmax').textContent = this.value + 'c'">
-          <div class="range-bounds"><span>55c (strict)</span><span>90c (loose)</span></div>
-        </div>
+        <input type="range" id="sl-mom" min="0.01" max="0.3" step="0.005"
+          oninput="document.getElementById('val-mom').textContent = parseFloat(this.value).toFixed(3) + '%'">
+        <div class="range-bounds"><span>0.01% (loose)</span><span>0.30% (strict)</span></div>
       </div>
 
-      <!-- Signal sensitivity -->
-      <div class="settings-group">
-        <div class="settings-group-title">Signal Sensitivity</div>
-
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Momentum threshold</span>
-            <span class="setting-value-display" id="val-mom"></span>
-          </div>
-          <input type="range" id="sl-mom" min="0.01" max="0.3" step="0.005"
-            oninput="document.getElementById('val-mom').textContent = parseFloat(this.value).toFixed(3) + '%'">
-          <div class="range-bounds"><span>0.01% (loose)</span><span>0.3% (strict)</span></div>
+      <div class="setting-row">
+        <div class="setting-label">
+          <span>Take-profit target</span>
+          <span class="setting-value-display" id="val-tp"></span>
         </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Momentum window</span>
-            <span class="setting-value-display" id="val-mwin"></span>
-          </div>
-          <input type="range" id="sl-mwin" min="5" max="60" step="5"
-            oninput="document.getElementById('val-mwin').textContent = this.value + 's'">
-          <div class="range-bounds"><span>5s (fastest)</span><span>60s (smoothest)</span></div>
-          <div class="setting-hint">How many seconds back to measure CF momentum. Lower = reacts faster to moves (better for early entry), higher = smoother signal with less noise.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Stop-loss min hold time</span>
-            <span class="setting-value-display" id="val-hold"></span>
-          </div>
-          <input type="range" id="sl-hold" min="30" max="240" step="10"
-            oninput="document.getElementById('val-hold').textContent = this.value + 's'">
-          <div class="range-bounds"><span>30s (fires fast)</span><span>240s (patient)</span></div>
-          <div class="setting-hint">Stop-loss can't fire until the position has been open at least this long. Higher = bot rides out short-term noise instead of exiting too early.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Min confidence to trade</span>
-            <span class="setting-value-display" id="val-conf"></span>
-          </div>
-          <input type="range" id="sl-conf" min="0.30" max="0.85" step="0.05"
-            oninput="document.getElementById('val-conf').textContent = Math.round(parseFloat(this.value)*100) + '%'">
-          <div class="range-bounds"><span>30% (permissive)</span><span>85% (strict)</span></div>
-          <div class="setting-hint">Minimum signal confidence before a trade fires. Confidence is driven by momentum strength, CF distance, and feed count. Raise to require stronger momentum confirmation.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Post stop-loss cooldown</span>
-            <span class="setting-value-display" id="val-slcd"></span>
-          </div>
-          <input type="range" id="sl-slcd" min="0" max="300" step="15"
-            oninput="document.getElementById('val-slcd').textContent = this.value + 's'">
-          <div class="range-bounds"><span>0s (off)</span><span>300s (5 min)</span></div>
-          <div class="setting-hint">After a stop-loss exit, wait this long before re-entering the same market. Prevents rapid whipsaw losses when BTC is oscillating near the strike.</div>
-        </div>
+        <input type="range" id="sl-tp" min="85" max="99" step="1"
+          oninput="document.getElementById('val-tp').textContent = this.value + 'c'">
+        <div class="range-bounds"><span>85c (earlier)</span><span>99c (max)</span></div>
       </div>
 
-      <!-- Price range & size -->
-      <div class="settings-group">
-        <div class="settings-group-title">Price Filter &amp; Bet Size</div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Min YES price</span>
-            <span class="setting-value-display" id="val-minp"></span>
-          </div>
-          <input type="range" id="sl-minp" min="5" max="60" step="1"
-            oninput="document.getElementById('val-minp').textContent = this.value + 'c'">
-          <div class="range-bounds"><span>5c</span><span>60c</span></div>
-          <div class="setting-hint">Avoid long shots below this price.</div>
+      <div class="setting-row">
+        <div class="setting-label">
+          <span>Max bet per trade</span>
+          <span class="setting-value-display" id="val-bet"></span>
         </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Max YES price</span>
-            <span class="setting-value-display" id="val-maxp"></span>
-          </div>
-          <input type="range" id="sl-maxp" min="55" max="95" step="1"
-            oninput="document.getElementById('val-maxp').textContent = this.value + 'c'">
-          <div class="setting-hint">Avoid heavy favourites above this price.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Max bet per trade</span>
-            <span class="setting-value-display" id="val-bet"></span>
-          </div>
-          <input type="range" id="sl-bet" min="1" max="50" step="1"
-            oninput="document.getElementById('val-bet').textContent = '$' + this.value">
-          <div class="range-bounds"><span>$1</span><span>$50</span></div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Daily loss limit</span>
-            <span class="setting-value-display" id="val-maxloss"></span>
-          </div>
-          <input type="range" id="sl-maxloss" min="5" max="100" step="5"
-            oninput="document.getElementById('val-maxloss').textContent = '$' + this.value">
-          <div class="range-bounds"><span>$5 (tight)</span><span>$100</span></div>
-          <div class="setting-hint">Bot stops trading for the day once losses reach this amount.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Profit lock (daily)</span>
-            <span class="setting-value-display" id="val-proflock"></span>
-          </div>
-          <input type="range" id="sl-proflock" min="0" max="100" step="5"
-            oninput="document.getElementById('val-proflock').textContent = this.value == 0 ? 'Off' : '$' + this.value">
-          <div class="range-bounds"><span>Off</span><span>$100</span></div>
-          <div class="setting-hint">Stop trading once up this much today. 0 = disabled.</div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Stop-loss threshold</span>
-            <span class="setting-value-display" id="val-sl"></span>
-          </div>
-          <input type="range" id="sl-sl" min="5" max="30" step="1"
-            oninput="document.getElementById('val-sl').textContent = this.value + 'c'">
-          <div class="range-bounds"><span>5c (tight)</span><span>30c (loose)</span></div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Take-profit target</span>
-            <span class="setting-value-display" id="val-tp"></span>
-          </div>
-          <input type="range" id="sl-tp" min="85" max="99" step="1"
-            oninput="document.getElementById('val-tp').textContent = this.value + 'c'">
-          <div class="range-bounds"><span>85c (earlier)</span><span>99c (max gain)</span></div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-label">
-            <span>Max trades per cycle</span>
-            <span class="setting-value-display" id="val-maxt"></span>
-          </div>
-          <input type="range" id="sl-maxt" min="1" max="5" step="1"
-            oninput="document.getElementById('val-maxt').textContent = this.value">
-          <div class="range-bounds"><span>1</span><span>5</span></div>
-        </div>
+        <input type="range" id="sl-bet" min="1" max="50" step="1"
+          oninput="document.getElementById('val-bet').textContent = '$' + this.value">
+        <div class="range-bounds"><span>$1</span><span>$50</span></div>
       </div>
 
-    </div><!-- end settings-grid -->
+      <div class="setting-row">
+        <div class="setting-label">
+          <span>Daily loss limit</span>
+          <span class="setting-value-display" id="val-maxloss"></span>
+        </div>
+        <input type="range" id="sl-maxloss" min="5" max="100" step="5"
+          oninput="document.getElementById('val-maxloss').textContent = '$' + this.value">
+        <div class="range-bounds"><span>$5</span><span>$100</span></div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <span>Max trades per cycle</span>
+          <span class="setting-value-display" id="val-maxt"></span>
+        </div>
+        <input type="range" id="sl-maxt" min="1" max="5" step="1"
+          oninput="document.getElementById('val-maxt').textContent = this.value">
+        <div class="range-bounds"><span>1</span><span>5</span></div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <span>Min YES price</span>
+          <span class="setting-value-display" id="val-minp"></span>
+        </div>
+        <input type="range" id="sl-minp" min="5" max="60" step="1"
+          oninput="document.getElementById('val-minp').textContent = this.value + 'c'">
+        <div class="range-bounds"><span>5c</span><span>60c</span></div>
+        <div class="setting-hint">Avoid long shots below this price.</div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <span>Max YES price</span>
+          <span class="setting-value-display" id="val-maxp"></span>
+        </div>
+        <input type="range" id="sl-maxp" min="55" max="95" step="1"
+          oninput="document.getElementById('val-maxp').textContent = this.value + 'c'">
+        <div class="range-bounds"><span>55c</span><span>95c</span></div>
+        <div class="setting-hint">Avoid heavy favorites above this price.</div>
+      </div>
+
+    </div><!-- end settings-core -->
+
+    <!-- Advanced toggle -->
+    <button class="advanced-toggle" id="adv-toggle-btn" onclick="toggleAdvanced()">
+      <span class="adv-chevron">▸</span>
+      <span>Advanced settings</span>
+    </button>
+
+    <!-- Advanced settings (hidden by default) -->
+    <div id="advanced-settings" class="advanced-panel" style="display:none">
+      <div class="settings-grid">
+
+        <!-- Trade Timing -->
+        <div class="settings-group">
+          <div class="settings-group-title">Trade Timing</div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Early entry window opens</span>
+              <span class="setting-value-display" id="val-early"></span>
+            </div>
+            <input type="range" id="sl-early" min="2" max="14" step="0.5"
+              oninput="document.getElementById('val-early').textContent = this.value + ' min'">
+            <div class="range-bounds"><span>2 min</span><span>14 min</span></div>
+            <div class="setting-hint">Earliest the bot will consider a trade. Strict criteria: CF far from strike, momentum confirming, YES below early-max.</div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Regular window opens</span>
+              <span class="setting-value-display" id="val-start"></span>
+            </div>
+            <input type="range" id="sl-start" min="1" max="12" step="0.5"
+              oninput="document.getElementById('val-start').textContent = this.value + ' min'">
+            <div class="range-bounds"><span>1 min (aggressive)</span><span>12 min (early)</span></div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Stop entering before close</span>
+              <span class="setting-value-display" id="val-end"></span>
+            </div>
+            <input type="range" id="sl-end" min="0" max="5" step="0.5"
+              oninput="document.getElementById('val-end').textContent = this.value + ' min'">
+            <div class="range-bounds"><span>0 (right up to close)</span><span>5 min early</span></div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Early entry: max YES price</span>
+              <span class="setting-value-display" id="val-emax"></span>
+            </div>
+            <input type="range" id="sl-emax" min="50" max="90" step="1"
+              oninput="document.getElementById('val-emax').textContent = this.value + 'c'">
+            <div class="range-bounds"><span>50c (strict)</span><span>90c (loose)</span></div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Early entry: min CF distance</span>
+              <span class="setting-value-display" id="val-edist"></span>
+            </div>
+            <input type="range" id="sl-edist" min="0.03" max="0.25" step="0.01"
+              oninput="document.getElementById('val-edist').textContent = parseFloat(this.value).toFixed(2) + '%'">
+            <div class="range-bounds"><span>0.03% (loose)</span><span>0.25% (strict)</span></div>
+            <div class="setting-hint">How far CF must be from strike for early entry. 0.10% ≈ $75 on $75k BTC.</div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Late fallback: min CF distance</span>
+              <span class="setting-value-display" id="val-ldist"></span>
+            </div>
+            <input type="range" id="sl-ldist" min="0.01" max="0.15" step="0.01"
+              oninput="document.getElementById('val-ldist').textContent = parseFloat(this.value).toFixed(2) + '%'">
+            <div class="range-bounds"><span>0.01% (loose)</span><span>0.15% (strict)</span></div>
+            <div class="setting-hint">In final minutes, take the obvious side if CF is at least this far from strike.</div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Late fallback: max YES price</span>
+              <span class="setting-value-display" id="val-lmax"></span>
+            </div>
+            <input type="range" id="sl-lmax" min="55" max="90" step="1"
+              oninput="document.getElementById('val-lmax').textContent = this.value + 'c'">
+            <div class="range-bounds"><span>55c (strict)</span><span>90c (loose)</span></div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Wrong-side max distance</span>
+              <span class="setting-value-display" id="val-wrong"></span>
+            </div>
+            <input type="range" id="sl-wrong" min="0" max="0.10" step="0.005"
+              oninput="document.getElementById('val-wrong').textContent = parseFloat(this.value).toFixed(3) + '%'">
+            <div class="range-bounds"><span>0% (no wrong-side)</span><span>0.10%</span></div>
+            <div class="setting-hint">Caps how far over the strike CF can be for a "near target" momentum entry. 0.025% ≈ $19.</div>
+          </div>
+        </div>
+
+        <!-- Signal Fine-tuning -->
+        <div class="settings-group">
+          <div class="settings-group-title">Signal Fine-tuning</div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Momentum window</span>
+              <span class="setting-value-display" id="val-mwin"></span>
+            </div>
+            <input type="range" id="sl-mwin" min="5" max="60" step="5"
+              oninput="document.getElementById('val-mwin').textContent = this.value + 's'">
+            <div class="range-bounds"><span>5s (fastest)</span><span>60s (smoothest)</span></div>
+            <div class="setting-hint">How far back to measure CF momentum. Lower = faster reaction, higher = less noise.</div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Stop-loss min hold time</span>
+              <span class="setting-value-display" id="val-hold"></span>
+            </div>
+            <input type="range" id="sl-hold" min="5" max="240" step="5"
+              oninput="document.getElementById('val-hold').textContent = this.value + 's'">
+            <div class="range-bounds"><span>5s (fires fast)</span><span>240s (patient)</span></div>
+            <div class="setting-hint">Stop-loss can't fire until position has been open this long. Prevents noise exits.</div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Min confidence to trade</span>
+              <span class="setting-value-display" id="val-conf"></span>
+            </div>
+            <input type="range" id="sl-conf" min="0.30" max="0.85" step="0.05"
+              oninput="document.getElementById('val-conf').textContent = Math.round(parseFloat(this.value)*100) + '%'">
+            <div class="range-bounds"><span>30% (permissive)</span><span>85% (strict)</span></div>
+            <div class="setting-hint">Minimum signal confidence before a trade fires.</div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Post stop-loss cooldown</span>
+              <span class="setting-value-display" id="val-slcd"></span>
+            </div>
+            <input type="range" id="sl-slcd" min="0" max="300" step="15"
+              oninput="document.getElementById('val-slcd').textContent = this.value + 's'">
+            <div class="range-bounds"><span>0s (off)</span><span>300s (5 min)</span></div>
+            <div class="setting-hint">Wait this long before re-entering after a stop-loss. Prevents whipsaw losses.</div>
+          </div>
+        </div>
+
+        <!-- Risk Extras -->
+        <div class="settings-group">
+          <div class="settings-group-title">Risk Extras</div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Stop-loss threshold</span>
+              <span class="setting-value-display" id="val-sl"></span>
+            </div>
+            <input type="range" id="sl-sl" min="5" max="30" step="1"
+              oninput="document.getElementById('val-sl').textContent = this.value + 'c'">
+            <div class="range-bounds"><span>5c (tight)</span><span>30c (loose)</span></div>
+            <div class="setting-hint">Legacy price-based stop — backup for when signal stop is disabled.</div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Profit lock (daily)</span>
+              <span class="setting-value-display" id="val-proflock"></span>
+            </div>
+            <input type="range" id="sl-proflock" min="0" max="100" step="5"
+              oninput="document.getElementById('val-proflock').textContent = this.value == 0 ? 'Off' : '$' + this.value">
+            <div class="range-bounds"><span>Off</span><span>$100</span></div>
+            <div class="setting-hint">Stop trading once up this much today. 0 = disabled.</div>
+          </div>
+        </div>
+
+      </div><!-- end settings-grid -->
+    </div><!-- end advanced-panel -->
 
     <div class="settings-footer">
       <div style="display:flex;gap:10px;align-items:center">
@@ -1578,6 +1619,14 @@
       settingsLoaded = false;
       loadSettings(d.settings);
     });
+  }
+
+  function toggleAdvanced() {
+    const panel = document.getElementById('advanced-settings');
+    const btn   = document.getElementById('adv-toggle-btn');
+    const open  = panel.style.display === 'none';
+    panel.style.display = open ? 'block' : 'none';
+    btn.classList.toggle('open', open);
   }
 
   /* ── Init ── */

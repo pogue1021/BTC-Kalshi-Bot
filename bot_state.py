@@ -22,67 +22,57 @@ class LiveSettings:
     The signal engine reads from this on every evaluation.
     """
     # When to look for trades (minutes before market close)
-    trade_window_start_minutes: float = 5.0   # Start looking this many minutes before close
-    trade_window_end_minutes:   float = 1.5   # Stop looking this many minutes before close
+    trade_window_start_minutes: float = 5.0
+    trade_window_end_minutes:   float = 0.5
 
     # Signal sensitivity
-    momentum_threshold_pct:   float = 0.05    # Min % Binance price move over window
-    momentum_window_secs:     int   = 30      # How many seconds back to measure momentum
+    momentum_threshold_pct:   float = 0.020
+    momentum_window_secs:     int   = 20
 
-    # Market price filter (don't bet on heavily one-sided markets)
-    min_yes_price_cents: int = 20
-    max_yes_price_cents: int = 80
+    # Market price filter
+    min_yes_price_cents: int = 39
+    max_yes_price_cents: int = 82
 
     # Position sizing
     max_bet_dollars: float = 10.0
 
     # Stop-loss / multi-trade settings
-    stop_loss_cents:      int   = 20   # Legacy price-based stop (used when signal_stop_enabled=False)
-    take_profit_cents:    int   = 97   # Exit early and bank gain when position reaches this price
-    sl_min_hold_secs:     int   = 90   # Stop-loss can't fire within this many seconds of entry
-    sl_disable_mins:      float = 3.0  # LEGACY: kept for backward compat (used as default for signal_sl_disable_mins)
-    # Split SL gates — soft (signal/legacy) vs hard (price-collapse failsafe).
-    # Soft stays off late to avoid panic exits on Kalshi spread noise.
-    # Hard stays armed almost to the bell so catastrophic moves can't ride to 0c.
-    signal_sl_disable_mins: float = 3.0   # Soft SL (signal-based + legacy price stop) disabled in final N min
-    price_sl_disable_mins:  float = 0.5   # Hard SL (price-collapse failsafe) disabled in final N min
-    max_trades_per_cycle: int   = 3    # Max trades allowed within a single 15-min market
+    stop_loss_cents:      int   = 23
+    take_profit_cents:    int   = 95
+    sl_min_hold_secs:     int   = 15
+    sl_disable_mins:      float = 3.0
+    signal_sl_disable_mins: float = 3.0
+    price_sl_disable_mins:  float = 0.5
+    max_trades_per_cycle: int   = 1
 
-    # Signal-based stop-loss (see config.yaml for explanation)
+    # Signal-based stop-loss
     signal_stop_enabled:          bool = True
     signal_stop_persistence_secs: int  = 15
-    stop_loss_fallback_cents:     int  = 30
+    stop_loss_fallback_cents:     int  = 20
 
-    # Early entry settings (6–12 min before close)
-    early_entry_window_minutes: float = 12.0  # How far out to allow early entries
-    early_min_distance_pct:     float = 0.10  # CF must be this far % from target to enter early
-    early_max_yes_cents:        int   = 65    # Kalshi YES price must be below this (market hasn't caught up)
+    # Early entry settings
+    early_entry_window_minutes: float = 10.0
+    early_min_distance_pct:     float = 0.07
+    early_max_yes_cents:        int   = 55
 
-    # Late-window fallback (Option B) — take any clearly-edged trade in final minutes
+    # Late-window fallback
     late_window_fallback_enabled:  bool  = True
-    late_window_fallback_minutes:  float = 3.0
-    late_window_min_distance_pct:  float = 0.04
-    late_window_max_yes_cents:     int   = 72
+    late_window_fallback_minutes:  float = 2.0
+    late_window_min_distance_pct:  float = 0.03
+    late_window_max_yes_cents:     int   = 82
 
-    # Wrong-side entry guard — when the "near target" momentum entry would put
-    # CF on the wrong side of the strike, this caps how far over the line we'll
-    # allow it. 0.025% ≈ $19 on $76k BTC, ~0.5 sigma over 2min in calm BTC regime.
-    # Set 0 to refuse all wrong-side entries.
+    # Wrong-side entry guard
     max_wrong_side_distance_pct:   float = 0.025
 
-    # Minimum confidence score required before a YES/NO signal triggers a trade.
-    # Confidence is driven by momentum strength, CF distance, and feed count.
-    # 0.50 = permissive (most trades pass), 0.65+ = momentum-confirmation required.
-    min_confidence_pct: float = 0.50
+    # Minimum confidence score
+    min_confidence_pct: float = 0.55
 
-    # After a stop-loss exit within a cycle, wait this many seconds before
-    # re-entering — prevents rapid whipsaw losses on the same market.
-    # Resets when a new market opens. 0 = no cooldown (old behavior).
-    sl_cooldown_secs: int = 60
+    # Post stop-loss cooldown
+    sl_cooldown_secs: int = 120
 
-    # Risk / money management (live-adjustable from dashboard)
-    max_daily_loss:        float = 75.0   # Stop trading if down this much today ($)
-    min_daily_profit_lock: float = 0.0    # Stop trading once up this much today ($); 0 = disabled
+    # Risk / money management
+    max_daily_loss:        float = 75.0
+    min_daily_profit_lock: float = 0.0
 
     def to_dict(self) -> dict:
         return {
