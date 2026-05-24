@@ -711,10 +711,13 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                     )
                     try:
                         # On a hard price-collapse, drop 10c below the bid to
-                        # guarantee a fill — bleeding 10c more is better than
-                        # failing to exit while the market keeps falling.
+                        # guarantee a fill — but only when price is high enough
+                        # that the discount makes sense. Below 15c the market
+                        # is nearly worthless already; just sell at bid.
                         exit_price = (
-                            max(1, sell_price - 10) if hard_collapse_fires else sell_price
+                            max(1, sell_price - 10)
+                            if hard_collapse_fires and sell_price > 15
+                            else sell_price
                         )
                         kalshi_client.sell_position(
                             ticker        = ticker,
@@ -951,6 +954,9 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                 else min(no_bid + 1, no_ask - 1)
             )
             price_cents = max(1, price_cents)
+            # Hard clamp: never place an order below the configured minimum,
+            # even if prices ticked between the eligibility check and here.
+            price_cents = max(price_cents, state.settings.min_yes_price_cents)
 
             if price_cents <= 0:
                 await asyncio.sleep(5)
