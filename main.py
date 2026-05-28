@@ -247,6 +247,37 @@ def _find_ghost_positions(kalshi_client):
             and f.get("ticker") not in settled_or_sold]
 
 
+def _init_day_start_balance(balance: float) -> None:
+    """
+    Persist today's opening balance so daily P&L survives bot restarts.
+    If a file already exists from today, load that balance (don't reset it).
+    If the file is from a prior day, overwrite with current balance.
+    """
+    import json
+    path = Path(__file__).parent / ".day_start_balance.json"
+    today = datetime.now().strftime("%Y-%m-%d")
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+            if data.get("date") == today:
+                state.balance_at_day_start = float(data["balance"])
+                logger.info(
+                    f"Day-start balance restored from file: ${state.balance_at_day_start:.2f} "
+                    f"(current balance ${balance:.2f}, daily P&L so far "
+                    f"${balance - state.balance_at_day_start:+.2f})"
+                )
+                return
+        except Exception:
+            pass
+    # New day or bad file — save current balance as today's start
+    state.balance_at_day_start = balance
+    try:
+        path.write_text(json.dumps({"date": today, "balance": balance}))
+    except Exception as e:
+        logger.warning(f"Could not save day-start balance file: {e}")
+    logger.info(f"New day — balance_at_day_start set to ${balance:.2f}")
+
+
 def _check_ghost_positions(kalshi_client, notify_fn, active_ticker=None,
                            risk_manager=None, label="startup"):
     """
@@ -1123,6 +1154,7 @@ async def main():
         balance = kalshi_client.get_balance()
         state.balance_dollars = balance
         logger.info(f"Kalshi account balance: ${balance:.2f}")
+        _init_day_start_balance(balance)
     except Exception as e:
         logger.error(f"Could not connect to Kalshi: {e}")
         sys.exit(1)
@@ -1234,6 +1266,7 @@ async def main_no_browser():
         balance = kalshi_client.get_balance()
         state.balance_dollars = balance
         logger.info(f"Kalshi account balance: ${balance:.2f}")
+        _init_day_start_balance(balance)
     except Exception as e:
         logger.error(f"Could not connect to Kalshi: {e}")
         sys.exit(1)

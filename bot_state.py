@@ -233,9 +233,10 @@ class BotState:
         self.floor_strike:           Optional[float] = None  # target price for current market
 
         # Account — aggregate totals (kept for backward compat with existing dashboard hooks)
-        self.balance_dollars: float = 0.0
-        self.daily_pnl:       float = 0.0
-        self.total_pnl:       float = 0.0
+        self.balance_dollars:      float = 0.0
+        self.balance_at_day_start: float = 0.0  # Kalshi balance at start of today — used for balance-based P&L
+        self.daily_pnl:            float = 0.0
+        self.total_pnl:            float = 0.0
         self.win_count:       int   = 0
         self.loss_count:      int   = 0
 
