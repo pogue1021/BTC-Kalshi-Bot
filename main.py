@@ -254,6 +254,7 @@ def _init_day_start_balance(balance: float) -> None:
     If the file is from a prior day, overwrite with current balance.
     """
     import json
+    _log = logging.getLogger("main")
     path = Path(__file__).parent / ".day_start_balance.json"
     today = datetime.now().strftime("%Y-%m-%d")
     if path.exists():
@@ -261,7 +262,7 @@ def _init_day_start_balance(balance: float) -> None:
             data = json.loads(path.read_text())
             if data.get("date") == today:
                 state.balance_at_day_start = float(data["balance"])
-                logger.info(
+                _log.info(
                     f"Day-start balance restored from file: ${state.balance_at_day_start:.2f} "
                     f"(current balance ${balance:.2f}, daily P&L so far "
                     f"${balance - state.balance_at_day_start:+.2f})"
@@ -274,8 +275,8 @@ def _init_day_start_balance(balance: float) -> None:
     try:
         path.write_text(json.dumps({"date": today, "balance": balance}))
     except Exception as e:
-        logger.warning(f"Could not save day-start balance file: {e}")
-    logger.info(f"New day — balance_at_day_start set to ${balance:.2f}")
+        _log.warning(f"Could not save day-start balance file: {e}")
+    _log.info(f"New day — balance_at_day_start set to ${balance:.2f}")
 
 
 def _check_ghost_positions(kalshi_client, notify_fn, active_ticker=None,
