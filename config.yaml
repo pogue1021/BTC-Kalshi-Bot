@@ -71,27 +71,22 @@ signal:
   max_yes_price_cents: 82  # Data shows 75-100c is 73% wins +$15.60; real dead zone is 55-65c
 
   # Stop-loss, take-profit, and re-entry
-  stop_loss_cents: 23  # Legacy price-based stop (kept for backward compat; used when signal_stop_enabled=false)
+  stop_loss_cents: 999  # Legacy price-based stop — disabled (set high so it never fires)
   take_profit_cents: 95  # Let winners run — settlement wins avg $13.42 vs TP at 89c avg $3.93
-  sl_min_hold_secs: 15  # Stop-loss can't fire within this many seconds of entry (prevents noise exits)
-  sl_disable_mins: 3.0              # LEGACY: original single SL disable timer — kept as fallback default for signal_sl_disable_mins
+  sl_min_hold_secs: 999  # Effectively disables legacy price-based stop
+  sl_disable_mins: 3.0              # LEGACY: kept as fallback default
 
   # Split SL gates — soft (signal/legacy) vs hard (price-collapse failsafe).
-  #   - Soft gates handle ambiguous reversals where Kalshi spread/noise can
-  #     cause panic exits in the closing minutes; we silence them late.
-  #   - Hard gate triggers only on a real catastrophic move (loss ≥ stop_loss_fallback_cents).
-  #     We keep this armed almost to the bell so a position can't ride from 58c → 0c untouched.
-  signal_sl_disable_mins: 3.0       # Soft SL (signal-based + legacy) disabled in final N min — avoid noisy exits
-  price_sl_disable_mins:  0.5       # Hard SL (price-collapse failsafe) disabled in final N min — almost always armed
+  signal_sl_disable_mins: 3.0       # Soft SL disabled in final N min (moot since signal_stop_enabled=false)
+  price_sl_disable_mins:  0.5       # Hard SL (price-collapse failsafe) disabled in final N min
   max_trades_per_cycle: 1  # Max times the bot can trade within one 15-min market
 
-  # Signal-based stop-loss (smarter than pure price-based)
-  # Exits only when the CF estimate has crossed to the wrong side of the strike
-  # against our position for `signal_stop_persistence_secs`. A widened price-based
-  # failsafe (`stop_loss_fallback_cents`) still catches catastrophic moves.
-  signal_stop_enabled: true         # Master toggle for signal-based stop
-  signal_stop_persistence_secs: 15  # CF must stay on wrong side this long before exit
-  stop_loss_fallback_cents: 20      # Hard price failsafe — always exits if loss hits this
+  # Signal-based stop-loss — DISABLED for settlement win rate test.
+  # Holding to settlement to measure true edge. Only the hard price failsafe
+  # remains active to protect against catastrophic collapse (e.g. YES: 65c → 0c).
+  signal_stop_enabled: false        # Disabled — letting positions settle naturally
+  signal_stop_persistence_secs: 15  # (unused while signal_stop_enabled=false)
+  stop_loss_fallback_cents: 30      # Hard price failsafe — exits only on catastrophic collapse
 
   # Early entry (6–12 min before close)
   # Bot can enter before the normal window ONLY when the signal is overwhelming:
