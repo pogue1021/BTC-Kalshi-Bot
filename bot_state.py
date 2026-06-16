@@ -280,8 +280,8 @@ class BotState:
                 t.outcome     = outcome
                 t.closed_at   = closed_at
                 break
-        self.total_pnl  += pnl
-        self.daily_pnl  += pnl
+        self.total_pnl += pnl
+        # daily_pnl is owned by the reconciler (balance-based) — don't touch it here
         if outcome in ("win", "take_profit"):
             self.win_count += 1
         elif outcome in ("loss", "stop_loss"):
@@ -294,12 +294,13 @@ class BotState:
 
     def apply_stats(self, stats: dict):
         """
-        Copy a risk_manager.get_stats() result into BotState — updates both the
-        aggregate totals and the paper/live split buckets in one call.
-        Headline daily/total P&L uses live-only so it matches the reconciler.
+        Copy a risk_manager.get_stats() result into BotState.
+        daily_pnl and live_daily_pnl are owned by the reconciler (balance-based)
+        and must NOT be overwritten here. Only totals, wins/losses, and paper
+        splits are updated from risk_manager data.
         """
         live = stats.get("live", {}) or {}
-        self.daily_pnl  = live.get("daily", 0.0)
+        # Do NOT set self.daily_pnl — reconciler owns it
         self.total_pnl  = live.get("pnl", 0.0)
         self.win_count  = stats.get("wins", 0)
         self.loss_count = stats.get("losses", 0)
@@ -310,7 +311,7 @@ class BotState:
         self.paper_losses    = p.get("losses", 0)
         self.paper_trades    = p.get("trades", 0)
         l = stats.get("live", {}) or {}
-        self.live_daily_pnl  = l.get("daily", 0.0)
+        # Do NOT set self.live_daily_pnl — reconciler owns it
         self.live_total_pnl  = l.get("pnl", 0.0)
         self.live_wins       = l.get("wins", 0)
         self.live_losses     = l.get("losses", 0)
