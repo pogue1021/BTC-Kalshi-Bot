@@ -111,7 +111,19 @@ signal:
   # entries entirely. Was 0.015% (≈ $11), but that turned out to be inside
   # typical noise — 0.025% blocks egregious wrong-side bets while still
   # allowing momentum entries that have a fighting chance.
-  max_wrong_side_distance_pct: 0.025  # ──────────────────────────────────────────────────────────
+  max_wrong_side_distance_pct: 0.025
+
+  # ──────────────────────────────────────────────────────────
+  # Near-strike gate (was hardcoded at 0.03 in signal_engine)
+  # ──────────────────────────────────────────────────────────
+  # CF closer to the strike than this % counts as "near" — coin-flip territory.
+  # When near, the only entry path is momentum. Log analysis showed 21 of 32
+  # trades entered near-strike and they were the concentrated loss source, so
+  # near-strike momentum entries are DISABLED. Re-enable to restore old behavior.
+  min_strike_distance_pct: 0.03
+  near_strike_momentum_enabled: false
+
+  # ──────────────────────────────────────────────────────────
   # Confidence threshold & whipsaw protection
   # ──────────────────────────────────────────────────────────
   # Min confidence score (0–1) before a YES/NO signal places a trade.

@@ -15,6 +15,7 @@ Rules enforced:
 
 import json
 import logging
+import math
 import os
 import tempfile
 import time
@@ -30,6 +31,19 @@ HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trades_
 logger = logging.getLogger(__name__)
 
 
+def kalshi_fee_dollars(price_cents: int, num_contracts: int) -> float:
+    """
+    Kalshi trading fee: ceil-to-cent(0.07 × contracts × P × (1−P)),
+    P in dollars. Charged per execution (entry and early exit) — settlement
+    payouts carry no fee. Peaks at 50c (~1.75c/contract), tiny near 1c/99c.
+    """
+    if price_cents <= 0 or price_cents >= 100 or num_contracts <= 0:
+        return 0.0
+    p = price_cents / 100
+    # round(...,6) strips float artifacts (175.00000000000003) before ceil
+    return math.ceil(round(0.07 * num_contracts * p * (1 - p) * 100, 6)) / 100
+
+
 @dataclass
 class Trade:
     """Record of a single completed trade."""
@@ -42,9 +56,10 @@ class Trade:
     opened_at:       float = field(default_factory=time.time)
     closed_at:       Optional[float] = None
     pnl_dollars:     Optional[float] = None
-    outcome:         Optional[str]   = None   # "win", "loss", "push"
+    outcome:         Optional[str]   = None   # "win", "loss", "push", "void"
     paper:           bool = True
     settings:        Optional[dict]  = None
+    fee_dollars:     float = 0.0              # entry fee, charged at open
 
 
 class RiskManager:
@@ -70,7 +85,8 @@ class RiskManager:
         # State
         self._trades:              list[Trade] = []
         self._open_positions:      list[Trade] = []
-        self._daily_pnl:           float = 0.0
+        self._daily_pnl:           float = 0.0   # paper + live combined (display only)
+        self._daily_pnl_live:      float = 0.0   # real money only — drives the loss limit
         self._last_trade_date:     date  = date.today()
         self._last_loss_time:      float = 0.0
         self._consecutive_losses:  int   = 0
@@ -111,6 +127,7 @@ class RiskManager:
         if today != self._last_trade_date:
             logger.info(f"New trading day. Resetting daily P&L (was ${self._daily_pnl:.2f})")
             self._daily_pnl        = 0.0
+            self._daily_pnl_live   = 0.0
             self._last_trade_date  = today
             self._consecutive_losses = 0
 
@@ -118,17 +135,26 @@ class RiskManager:
         max_daily_loss        = float(getattr(_bot_state.settings, "max_daily_loss",        self.max_daily_loss))
         min_daily_profit_lock = float(getattr(_bot_state.settings, "min_daily_profit_lock", self.min_daily_profit_lock))
 
+        # Loss limit and profit lock use REAL-MONEY P&L only. Paper trades must
+        # never trip (or mask) the circuit breaker for live trading.
+        # In paper mode there's no real money at risk, so fall back to the
+        # combined number so the limits still exercise during simulation.
+        # Reads state.paper_mode (not startup config) — the dashboard toggle
+        # switches modes without a restart.
+        currently_paper = bool(getattr(_bot_state, "paper_mode", self.paper_mode))
+        gate_pnl = self._daily_pnl if currently_paper else self._daily_pnl_live
+
         # Daily profit lock — stop trading once we've banked enough for the day
-        if min_daily_profit_lock > 0 and self._daily_pnl >= min_daily_profit_lock:
+        if min_daily_profit_lock > 0 and gate_pnl >= min_daily_profit_lock:
             return False, (
-                f"Profit lock: daily P&L ${self._daily_pnl:.2f} reached "
+                f"Profit lock: daily P&L ${gate_pnl:.2f} reached "
                 f"target ${min_daily_profit_lock:.2f}. Done for today."
             )
 
         # Daily loss limit
-        if self._daily_pnl <= -max_daily_loss:
+        if gate_pnl <= -max_daily_loss:
             return False, (
-                f"Daily loss limit hit: ${abs(self._daily_pnl):.2f} lost "
+                f"Daily loss limit hit: ${abs(gate_pnl):.2f} lost "
                 f"(limit: ${max_daily_loss}). Bot stopped for today."
             )
 
@@ -172,9 +198,10 @@ class RiskManager:
         settings: dict = None,
     ) -> Trade:
         """Call this immediately after a successful order is placed."""
-        cost = (price_cents * num_contracts) / 100
+        cost      = (price_cents * num_contracts) / 100
+        entry_fee = kalshi_fee_dollars(price_cents, num_contracts)
         trade = Trade(
-            trade_id      = f"trade-{int(time.time())}",
+            trade_id      = f"trade-{int(time.time() * 1000)}",
             ticker        = ticker,
             side          = side,
             price_cents   = price_cents,
@@ -182,6 +209,7 @@ class RiskManager:
             cost_dollars  = cost,
             paper         = paper,
             settings      = settings,
+            fee_dollars   = entry_fee,
         )
         self._trades.append(trade)
         self._open_positions.append(trade)
@@ -189,7 +217,7 @@ class RiskManager:
         mode = "[PAPER]" if paper else "[LIVE]"
         logger.info(
             f"{mode} Trade opened: {side.upper()} {num_contracts}x @ {price_cents}¢ "
-            f"on {ticker} — risking ${cost:.2f}"
+            f"on {ticker} — risking ${cost:.2f} (+${entry_fee:.2f} fee)"
         )
         return trade
 
@@ -207,12 +235,16 @@ class RiskManager:
 
         gain_cents   = exit_price_cents - trade.price_cents
         gain_dollars = (gain_cents * trade.num_contracts) / 100
+        exit_fee     = kalshi_fee_dollars(exit_price_cents, trade.num_contracts)
+        total_fees   = trade.fee_dollars + exit_fee
 
-        trade.pnl_dollars = gain_dollars
+        trade.pnl_dollars = gain_dollars - total_fees
         trade.outcome     = "take_profit"
 
         self._consecutive_losses = 0   # it's a win — reset the kill switch
         self._daily_pnl += trade.pnl_dollars
+        if not trade.paper:
+            self._daily_pnl_live += trade.pnl_dollars
 
         if trade in self._open_positions:
             self._open_positions.remove(trade)
@@ -220,7 +252,8 @@ class RiskManager:
         mode = "[PAPER]" if trade.paper else "[LIVE]"
         logger.info(
             f"{mode} Take-profit exit: entry {trade.price_cents}c → exit {exit_price_cents}c "
-            f"(+{gain_cents}c × {trade.num_contracts} = +${gain_dollars:.2f}) | "
+            f"(+{gain_cents}c × {trade.num_contracts} = +${gain_dollars:.2f}, "
+            f"fees −${total_fees:.2f}, net ${trade.pnl_dollars:+.2f}) | "
             f"Daily P&L: ${self._daily_pnl:+.2f}"
         )
         self.save_trades()
@@ -240,11 +273,15 @@ class RiskManager:
 
         loss_cents   = trade.price_cents - exit_price_cents
         loss_dollars = (loss_cents * trade.num_contracts) / 100
+        exit_fee     = kalshi_fee_dollars(exit_price_cents, trade.num_contracts)
+        total_fees   = trade.fee_dollars + exit_fee
 
-        trade.pnl_dollars = -loss_dollars    # negative = we lost money
+        trade.pnl_dollars = -loss_dollars - total_fees    # negative = we lost money
         trade.outcome     = "stop_loss"
 
         self._daily_pnl += trade.pnl_dollars
+        if not trade.paper:
+            self._daily_pnl_live += trade.pnl_dollars
 
         if trade in self._open_positions:
             self._open_positions.remove(trade)
@@ -252,8 +289,31 @@ class RiskManager:
         mode = "[PAPER]" if trade.paper else "[LIVE]"
         logger.info(
             f"{mode} Stop-loss exit: entry {trade.price_cents}c → exit {exit_price_cents}c "
-            f"(−{loss_cents}c × {trade.num_contracts} = −${loss_dollars:.2f}) | "
+            f"(−{loss_cents}c × {trade.num_contracts} = −${loss_dollars:.2f}, "
+            f"fees −${total_fees:.2f}, net ${trade.pnl_dollars:+.2f}) | "
             f"Daily P&L: ${self._daily_pnl:+.2f}"
+        )
+        self.save_trades()
+        return trade
+
+    def release_position(self, trade: Trade, reason: str = "settlement timeout") -> Trade:
+        """
+        Release a position that will never settle normally (voided market,
+        settlement API timeout). Removes it from _open_positions so the
+        one-position-at-a-time gate doesn't block all future trades, and
+        marks it void with $0 P&L so it can't be double-counted later.
+        """
+        if trade.outcome is not None:
+            return trade
+        trade.closed_at   = time.time()
+        trade.pnl_dollars = 0.0
+        trade.outcome     = "void"
+        if trade in self._open_positions:
+            self._open_positions.remove(trade)
+        logger.warning(
+            f"Position released ({reason}): {trade.side.upper()} "
+            f"{trade.num_contracts}x @ {trade.price_cents}c on {trade.ticker} — "
+            f"recorded as VOID, $0 P&L. Check Kalshi for the real outcome."
         )
         self.save_trades()
         return trade
@@ -279,18 +339,21 @@ class RiskManager:
                      (not we_bet_yes and not market_settled_yes)
 
         if we_won:
-            # Payout = num_contracts * $1 per contract
+            # Payout = num_contracts * $1 per contract. Settlement carries no
+            # fee — only the entry fee applies.
             payout = trade.num_contracts * 1.0
-            trade.pnl_dollars = payout - trade.cost_dollars
+            trade.pnl_dollars = payout - trade.cost_dollars - trade.fee_dollars
             trade.outcome     = "win"
             self._consecutive_losses = 0
         else:
-            trade.pnl_dollars = -trade.cost_dollars
+            trade.pnl_dollars = -trade.cost_dollars - trade.fee_dollars
             trade.outcome     = "loss"
             self._consecutive_losses += 1
             self._last_loss_time = time.time()
 
         self._daily_pnl += trade.pnl_dollars
+        if not trade.paper:
+            self._daily_pnl_live += trade.pnl_dollars
 
         if trade in self._open_positions:
             self._open_positions.remove(trade)
@@ -381,6 +444,7 @@ class RiskManager:
                 "outcome":       t.outcome,
                 "paper":         t.paper,
                 "settings":      t.settings,
+                "fee_dollars":   t.fee_dollars,
             })
         # Write to a temp file first, then rename — prevents corrupting the
         # history file if the bot crashes mid-write (atomic on most OS/filesystems).
@@ -434,6 +498,7 @@ class RiskManager:
                 outcome       = r.get("outcome"),
                 paper         = r.get("paper", True),
                 settings      = r.get("settings"),
+                fee_dollars   = r.get("fee_dollars", 0.0),
             )
             self._trades.append(t)
             loaded.append(t)
@@ -446,6 +511,8 @@ class RiskManager:
                 closed_date = date.fromtimestamp(t.closed_at)
                 if closed_date == today:
                     self._daily_pnl += t.pnl_dollars
+                    if not t.paper:
+                        self._daily_pnl_live += t.pnl_dollars
 
         total = len(loaded)
         wins  = sum(1 for t in loaded if t.outcome == "win")

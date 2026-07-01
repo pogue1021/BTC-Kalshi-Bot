@@ -12,7 +12,7 @@ from typing import Optional
 
 # Bump this any time you push a meaningful change — visible in the dashboard
 # footer so you can instantly confirm a Pi pull/restart picked up the new code.
-BOT_VERSION = "1.1.7"
+BOT_VERSION = "1.2.0"
 
 
 @dataclass
@@ -64,6 +64,12 @@ class LiveSettings:
     # Wrong-side entry guard
     max_wrong_side_distance_pct:   float = 0.025
 
+    # Near-strike gate: CF closer to the strike than this % is "near" (coin-flip
+    # territory). Was hardcoded at 0.03 in signal_engine. When near, the bot can
+    # only enter via the momentum path — and only if that path is enabled below.
+    min_strike_distance_pct:       float = 0.03
+    near_strike_momentum_enabled:  bool  = True
+
     # Minimum confidence score
     min_confidence_pct: float = 0.55
 
@@ -101,6 +107,8 @@ class LiveSettings:
             "late_window_min_distance_pct":  self.late_window_min_distance_pct,
             "late_window_max_yes_cents":     self.late_window_max_yes_cents,
             "max_wrong_side_distance_pct":   self.max_wrong_side_distance_pct,
+            "min_strike_distance_pct":       self.min_strike_distance_pct,
+            "near_strike_momentum_enabled":  self.near_strike_momentum_enabled,
             "min_confidence_pct":            self.min_confidence_pct,
             "sl_cooldown_secs":              self.sl_cooldown_secs,
             "max_daily_loss":               self.max_daily_loss,
@@ -158,6 +166,10 @@ class LiveSettings:
             self.late_window_max_yes_cents = int(d["late_window_max_yes_cents"])
         if "max_wrong_side_distance_pct" in d:
             self.max_wrong_side_distance_pct = float(d["max_wrong_side_distance_pct"])
+        if "min_strike_distance_pct" in d:
+            self.min_strike_distance_pct = float(d["min_strike_distance_pct"])
+        if "near_strike_momentum_enabled" in d:
+            self.near_strike_momentum_enabled = bool(d["near_strike_momentum_enabled"])
         if "min_confidence_pct" in d:
             self.min_confidence_pct = float(d["min_confidence_pct"])
         if "sl_cooldown_secs" in d:

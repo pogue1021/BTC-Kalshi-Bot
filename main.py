@@ -120,6 +120,8 @@ def _seed_settings_from_config(config: dict):
         "late_window_min_distance_pct": sig.get("late_window_min_distance_pct", s.late_window_min_distance_pct),
         "late_window_max_yes_cents":    sig.get("late_window_max_yes_cents",    s.late_window_max_yes_cents),
         "max_wrong_side_distance_pct":  sig.get("max_wrong_side_distance_pct",  s.max_wrong_side_distance_pct),
+        "min_strike_distance_pct":      sig.get("min_strike_distance_pct",      s.min_strike_distance_pct),
+        "near_strike_momentum_enabled": sig.get("near_strike_momentum_enabled", s.near_strike_momentum_enabled),
         "min_confidence_pct":           sig.get("min_confidence_pct",           s.min_confidence_pct),
         "sl_cooldown_secs":             sig.get("sl_cooldown_secs",             s.sl_cooldown_secs),
         "max_bet_dollars":              trd.get("max_bet_dollars",              s.max_bet_dollars),
@@ -410,9 +412,17 @@ async def watch_for_settlement(kalshi_client, risk_manager, trade, ticker, close
                 )
                 return
 
-            # Give up after 30 minutes — market may have been voided or delayed
+            # Give up after 30 minutes — market may have been voided or delayed.
+            # CRITICAL: release the position from the risk manager, otherwise it
+            # stays "open" forever and blocks every future trade this session.
             if secs_since_close > 1800:
                 logger.warning(f"Settlement timeout for {ticker} after 30min. Final status={status!r}")
+                risk_manager.release_position(trade, reason=f"settlement timeout on {ticker}")
+                state.apply_stats(risk_manager.get_stats())
+                notify(
+                    f"SETTLEMENT TIMEOUT: {ticker} never settled after 30min. "
+                    f"Position released as VOID — check Kalshi for the real outcome."
+                )
                 return
 
         except Exception as e:

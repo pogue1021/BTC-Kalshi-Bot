@@ -91,6 +91,8 @@ class SignalEngine:
         # too wide for a 30s momentum push to plausibly close.
         # 0.015% ≈ $11 on $76k BTC. Set to 0 to require CF on the favorable side.
         state.settings.max_wrong_side_distance_pct   = float(signal_cfg.get("max_wrong_side_distance_pct", 0.015))
+        state.settings.min_strike_distance_pct       = float(signal_cfg.get("min_strike_distance_pct", 0.03))
+        state.settings.near_strike_momentum_enabled  = bool(signal_cfg.get("near_strike_momentum_enabled", True))
         state.settings.min_confidence_pct         = float(signal_cfg.get("min_confidence_pct", 0.50))
         state.settings.sl_cooldown_secs           = int(signal_cfg.get("sl_cooldown_secs", 60))
         # Risk limits — seeded from trading section so dashboard sliders reflect config on startup
@@ -282,11 +284,22 @@ class SignalEngine:
                 (base_signal == Signal.NO  and momentum_pct > 0)
             )
 
-            # Minimum distance from target to trade (0.03% ≈ $22 on $73k BTC)
-            min_distance_pct = 0.03
+            # Minimum distance from target to trade (0.03% ≈ $22 on $73k BTC).
+            # Live-tunable via min_strike_distance_pct (was hardcoded).
+            min_distance_pct = float(getattr(cfg, "min_strike_distance_pct", 0.03))
 
             if abs(cf_vs_target_pct) < min_distance_pct:
-                # Too close to target — outcome is a coin flip, use momentum instead
+                # Too close to target — outcome is close to a coin flip.
+                # If near-strike momentum entries are disabled, never trade here.
+                if not bool(getattr(cfg, "near_strike_momentum_enabled", True)):
+                    return SignalResult(
+                        signal=Signal.HOLD, confidence=0.0,
+                        cf_estimate=round(cf_now, 2),
+                        momentum_pct=round(momentum_pct, 4),
+                        feeds_live=len(live_ex), consensus=consensus,
+                        reason=f"CF within ${abs(distance_dollars):.0f} of target "
+                               f"(${floor_strike:,.2f}) — near-strike entries disabled"
+                    )
                 if abs_mom < threshold:
                     return SignalResult(
                         signal=Signal.HOLD, confidence=0.0,
