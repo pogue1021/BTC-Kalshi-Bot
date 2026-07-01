@@ -26,9 +26,9 @@ kalshi:
 # SAFETY SETTINGS - Read before changing anything!
 # ----------------------------------------------------------
 trading:
-  paper_mode: true          # true = simulate trades only, false = place real orders
-  max_bet_dollars: 10  # Maximum dollars to risk on a single trade (e.g. 10 = $10)
-  max_daily_loss: 75        # Bot will STOP trading if it loses this much in a day ($)
+  paper_mode: false         # LIVE — the bot still starts DISARMED; nothing trades until you press ARM
+  max_bet_dollars: 5   # Reduced from 10 for the settlement win-rate test — same data, half the risk
+  max_daily_loss: 15        # Bot will STOP trading if it loses this much in a day ($) — 3 full losses at $5 bets
   min_daily_profit_lock: 0  # Optional: stop trading after this much profit to lock in gains
 
 # ----------------------------------------------------------
