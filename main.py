@@ -297,6 +297,12 @@ def _check_ghost_positions(kalshi_client, notify_fn, active_ticker=None,
     try:
         open_buys = _find_ghost_positions(kalshi_client)
 
+        # Positions the bot is still tracking (e.g. previous cycle's trade
+        # awaiting settlement confirmation) are not ghosts — don't warn.
+        if risk_manager is not None:
+            tracked = {t.ticker for t in getattr(risk_manager, "_open_positions", [])}
+            open_buys = [f for f in open_buys if f.get("ticker") not in tracked]
+
         if not open_buys:
             if label == "startup":
                 logger.info("Startup check: no ghost positions found.")
@@ -447,6 +453,7 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
     current_ticker       = None
     trade_count_this_cycle = 0   # how many trades placed in the current market
     settlement_task      = None  # asyncio task for the current settlement watcher
+    background_watchers  = set() # strong refs to prior-cycle watchers still awaiting settlement
     _cycle_last_sl_time  = 0.0   # timestamp of last stop-loss exit in this cycle
 
     # Signal-based stop-loss tracker — first time CF crossed to wrong side of
@@ -539,10 +546,17 @@ async def trading_loop(price_store, config, kalshi_client, signal_engine, risk_m
                 # New cycle starts fresh
                 skip_reasons_cycle.clear()
 
-                # Cancel the previous cycle's settlement watcher — it belongs to
-                # the old market and must not record results against new trades.
+                # Keep the previous cycle's settlement watcher RUNNING. Kalshi
+                # only confirms settlement ~2min after close — well into the
+                # next cycle — so cancelling here orphaned the trade in
+                # _open_positions forever and froze all trading ("Already have
+                # 1 open position"). The watcher holds refs to its own trade
+                # and ticker so it can't touch the new market, and it
+                # self-terminates on settlement or its 30-min timeout. Stash a
+                # strong reference so asyncio doesn't garbage-collect the task.
                 if settlement_task and not settlement_task.done():
-                    settlement_task.cancel()
+                    background_watchers.add(settlement_task)
+                    settlement_task.add_done_callback(background_watchers.discard)
 
                 logger.info(f"New market: {ticker} | Closes in: {seconds_until_close/60:.1f} min")
                 current_ticker          = ticker
