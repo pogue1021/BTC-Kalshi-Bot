@@ -157,6 +157,8 @@ class KalshiClient:
             if attempt > 0:
                 if method == "POST":
                     headers = self._sign_request("POST", path_no_query, body_str or "")
+                elif method == "DELETE":
+                    headers = self._sign_request("DELETE", path_with_query)
                 else:
                     headers = self._sign_request("GET", path_with_query)
 
@@ -164,6 +166,10 @@ class KalshiClient:
                 if method == "POST":
                     response = self.session.post(
                         full_url, headers=headers, data=body_str, timeout=10,
+                    )
+                elif method == "DELETE":
+                    response = self.session.delete(
+                        full_url, headers=headers, timeout=10,
                     )
                 else:
                     response = self.session.get(
@@ -222,6 +228,11 @@ class KalshiClient:
         body_str = json.dumps(body)
         headers  = self._sign_request("POST", path, body_str)
         return self._request_with_retry("POST", self.base_url + path, headers, body_str=body_str)
+
+    def _delete(self, path: str) -> dict:
+        """Make an authenticated DELETE request (auto-retries transient network errors)."""
+        headers = self._sign_request("DELETE", path)
+        return self._request_with_retry("DELETE", self.base_url + path, headers)
 
     # ─────────────────────────────────────────────────────────
     # ACCOUNT
@@ -564,8 +575,18 @@ class KalshiClient:
         )
 
     def cancel_order(self, order_id: str) -> dict:
-        """Cancel an open order by its order ID."""
-        return self._post(f"/portfolio/orders/{order_id}/cancel", {})
+        """
+        Cancel a resting order by its order ID.
+
+        Kalshi deprecated the v1 POST /portfolio/orders/{id}/cancel endpoint
+        alongside order creation (see place_order). It now 404s unconditionally,
+        which previously made every cancel attempt look like "order not found"
+        even for orders genuinely still resting — the caller would give up,
+        assume no trade happened, and walk away from a real live order that
+        later filled on its own, completely untracked. Now uses the v2
+        DELETE /portfolio/events/orders/{id} endpoint instead.
+        """
+        return self._delete(f"/portfolio/events/orders/{order_id}")
 
     def get_order(self, order_id: str) -> dict:
         """Fetch the current state of a single order. Used to poll for fill."""
