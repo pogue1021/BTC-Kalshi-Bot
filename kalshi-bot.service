@@ -1,0 +1,34 @@
+# systemd service — keeps the Kalshi bot running on the Pi and auto-restarts
+# it if it ever crashes or dies unexpectedly (Restart=always).
+#
+# Install on the Pi:
+#   sudo cp kalshi-bot.service /etc/systemd/system/kalshi-bot.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable kalshi-bot     # start automatically on boot
+#   sudo systemctl start kalshi-bot      # start it right now
+#
+# Useful commands:
+#   sudo systemctl status kalshi-bot     # is it running?
+#   sudo systemctl stop kalshi-bot       # stop it (e.g. before a git pull)
+#   sudo systemctl restart kalshi-bot    # restart after a git pull
+#   journalctl -u kalshi-bot -f          # live log stream
+#
+# If your repo lives somewhere other than /home/ppogue/BTC-Kalshi-Bot, or you
+# use a virtualenv, update User/WorkingDirectory/ExecStart below to match
+# (check `which python3` on the Pi if unsure).
+
+[Unit]
+Description=Kalshi BTC Trading Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ppogue
+WorkingDirectory=/home/ppogue/BTC-Kalshi-Bot
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
