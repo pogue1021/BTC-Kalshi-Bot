@@ -462,13 +462,16 @@ class KalshiClient:
             raise
 
         # v2's create-order response is flat (order_id/fill_count/remaining_count,
-        # no nested "order" or "status"). Re-fetch through the still-supported
-        # GET /portfolio/orders/{id} to get the familiar nested/status-bearing
-        # shape that _verify_fill_or_cancel already knows how to poll.
+        # no nested "order" or "status"). Kalshi can take a couple seconds to
+        # make a just-created order visible via GET /portfolio/orders/{id}, so
+        # don't fetch it here — hand off an unknown-status stub and let
+        # _verify_fill_or_cancel's own retry loop (which already tolerates
+        # transient errors while polling) do the first real status check.
+        # An eager fetch here previously raised on that propagation delay and
+        # got the whole order misreported as failed even when it had filled.
         order_id = response.get("order_id", "unknown")
-        full_order = self.get_order(order_id)
         return self._verify_fill_or_cancel(
-            {"order": full_order},
+            {"order": {"order_id": order_id, "status": ""}},
             context=f"buy {side.upper()} {num_contracts}x @ {price_cents}c on {ticker}",
             grace_secs=grace_secs,
         )
@@ -546,14 +549,16 @@ class KalshiClient:
             logger.error(f"Exit order failed: {e.response.status_code} — {e.response.text}")
             raise
 
-        order_id   = response.get("order_id", "unknown")
-        full_order = self.get_order(order_id)
+        # See place_order: don't eagerly fetch — a just-created order can 404
+        # for a couple seconds before Kalshi indexes it for GET. Hand off an
+        # unknown-status stub and let the retry loop's first poll handle it.
+        order_id = response.get("order_id", "unknown")
 
         # Exits need a short grace window — in a falling market, waiting 8s
         # means the fill price gets much worse. 3s is enough to catch a
         # momentary matching-engine lag without bleeding on the way down.
         return self._verify_fill_or_cancel(
-            {"order": full_order},
+            {"order": {"order_id": order_id, "status": ""}},
             context=f"sell {side.upper()} {num_contracts}x @ {price_cents}c on {ticker}",
             grace_secs=3.0,
         )
