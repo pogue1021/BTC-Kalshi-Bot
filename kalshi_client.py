@@ -437,24 +437,38 @@ class KalshiClient:
 
         yes_price = final_price if side == "yes" else (100 - final_price)
 
+        # Kalshi deprecated /portfolio/orders (v1) in favor of /portfolio/events/orders
+        # (v2). The v2 book only speaks in YES-leg bid/ask terms: "bid" = buy YES,
+        # "ask" = sell YES (economically equivalent to buying NO at 1-price). Since
+        # `yes_price` above already converts our yes/no price into YES-leg terms,
+        # the same conversion tells us which book side to submit:
+        #   buy YES -> bid (gain YES exposure)   |   buy NO -> ask (gain NO exposure)
+        book_side = "bid" if side == "yes" else "ask"
+
         body = {
-            "ticker":          ticker,
-            "action":          "buy",
-            "side":            side,
-            "type":            "limit",
-            "yes_price":       yes_price,
-            "count":           num_contracts,
-            "client_order_id": f"btcbot-{int(time.time())}",
+            "ticker":                     ticker,
+            "side":                       book_side,
+            "count":                      f"{num_contracts:.2f}",
+            "price":                      f"{yes_price / 100:.2f}",
+            "time_in_force":              "good_till_canceled" if maker else "immediate_or_cancel",
+            "self_trade_prevention_type": "taker_at_cross",
+            "client_order_id":            f"btcbot-{int(time.time())}",
         }
 
         try:
-            response = self._post("/portfolio/orders", body)
+            response = self._post("/portfolio/events/orders", body)
         except requests.HTTPError as e:
             logger.error(f"Order failed: {e.response.status_code} — {e.response.text}")
             raise
 
+        # v2's create-order response is flat (order_id/fill_count/remaining_count,
+        # no nested "order" or "status"). Re-fetch through the still-supported
+        # GET /portfolio/orders/{id} to get the familiar nested/status-bearing
+        # shape that _verify_fill_or_cancel already knows how to poll.
+        order_id = response.get("order_id", "unknown")
+        full_order = self.get_order(order_id)
         return self._verify_fill_or_cancel(
-            response,
+            {"order": full_order},
             context=f"buy {side.upper()} {num_contracts}x @ {price_cents}c on {ticker}",
             grace_secs=grace_secs,
         )
@@ -508,27 +522,38 @@ class KalshiClient:
                 f"{side.upper()} (was {price_cents}c) — buffer={self.cross_spread_buffer_cents}c"
             )
 
+        # Closing a position flips the bid/ask mapping from an entry order:
+        # closing YES (selling YES) increases NO exposure -> ask; closing NO
+        # (buying YES back) increases YES exposure -> bid. reduce_only caps
+        # the fill to our existing position so this can never flip into a
+        # new opening position on the opposite side.
+        book_side = "ask" if side == "yes" else "bid"
+
         body = {
-            "ticker":          ticker,
-            "action":          "sell",
-            "side":            side,
-            "type":            "limit",
-            "yes_price":       yes_price,
-            "count":           num_contracts,
-            "client_order_id": f"btcbot-exit-{int(time.time())}",
+            "ticker":                     ticker,
+            "side":                       book_side,
+            "count":                      f"{num_contracts:.2f}",
+            "price":                      f"{yes_price / 100:.2f}",
+            "time_in_force":              "immediate_or_cancel",
+            "self_trade_prevention_type": "taker_at_cross",
+            "reduce_only":                True,
+            "client_order_id":            f"btcbot-exit-{int(time.time())}",
         }
 
         try:
-            response = self._post("/portfolio/orders", body)
+            response = self._post("/portfolio/events/orders", body)
         except requests.HTTPError as e:
             logger.error(f"Exit order failed: {e.response.status_code} — {e.response.text}")
             raise
+
+        order_id   = response.get("order_id", "unknown")
+        full_order = self.get_order(order_id)
 
         # Exits need a short grace window — in a falling market, waiting 8s
         # means the fill price gets much worse. 3s is enough to catch a
         # momentary matching-engine lag without bleeding on the way down.
         return self._verify_fill_or_cancel(
-            response,
+            {"order": full_order},
             context=f"sell {side.upper()} {num_contracts}x @ {price_cents}c on {ticker}",
             grace_secs=3.0,
         )
